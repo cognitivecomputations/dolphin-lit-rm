@@ -310,3 +310,16 @@ These rubrics are designed to assess a wide range of writing styles. When scorin
 * BDSM scene scripts / narratives
 * Online erotic role-play logs (distinct from transcripts, often more narrative)
 
+
+# Strategy:
+
+1) get lots of samples of literature
+2) split them into ~5k chunks (chapters etc)
+3) ask a very smart model to judge and label each chunk according to the rubric definitions
+
+use the labeled data to populate a dataset of 1000 samples per {type x rubric x score} combination
+
+For those combinations with fewer than 1000 samples:
+synthetically generate more samples, using some existing samples as examples, and with the specific rubric x score definition
+
+in the end, each literature type will have 1000 examples of score 1, 2, 3, 4, and 5 for each rubric - which ought to be enough to train a reward model to score arbitrary prose on each rubric
