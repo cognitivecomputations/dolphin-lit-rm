@@ -167,3 +167,146 @@ These rubrics are designed to assess a wide range of writing styles. When scorin
 * **1 (Deficient)** – Formatting is severely problematic, absent, or inappropriate, significantly hindering comprehension.
 
 ---
+
+# Media Types
+
+## I. Fictional Narrative Forms
+
+### A. Prose Fiction (Long-Form)
+
+* **Literary Novel** — *e.g., contemporary literary fiction, classics*
+* **Genre Novel**
+
+  * *Fantasy Novel* — high fantasy, urban fantasy, grimdark, etc.
+  * *Science Fiction Novel* — hard SF, space opera, cyberpunk, dystopian, etc.
+  * *Horror Novel* — supernatural, psychological, body horror, slasher, etc.
+  * *Thriller / Suspense Novel* — crime, legal, spy, psychological, techno-thriller
+  * *Mystery / Detective Novel* — cozy, hard-boiled, police procedural
+  * *Romance Novel* — contemporary, historical, paranormal, erotica sub-genres
+* **Historical Fiction Novel**
+* **Young Adult (YA) Novel** — across all above genres
+* **Middle Grade Novel**
+* **Children’s Picture Books** — text component
+* **Experimental / Avant-Garde Novel**
+* **Novella**
+
+### B. Prose Fiction (Short-Form)
+
+* **Short Story** — literary and genre
+* **Flash Fiction / Micro-Fiction**
+* **Vignette**
+
+### C. Poetic Forms
+
+* **Lyric Poetry** — sonnets, odes, elegies, free verse, etc.
+* **Narrative Poetry** — epics, ballads
+* **Dramatic Poetry**
+* **Experimental Poetry**
+* **Haiku, Tanka, and other specific forms**
+* **Spoken Word Poetry** — transcripts
+
+### D. Dramatic Forms (for Performance / Reading)
+
+* **Stage Play Script** — full-length, one-act
+* **Screenplay** — feature film, short film
+* **Teleplay** — TV episode, miniseries
+* **Radio Play Script**
+* **Musical Libretto / Book**
+
+### E. Graphic & Sequential Art Narratives (Textual Components)
+
+* **Comic Book Script**
+* **Graphic Novel Script**
+* **Japanese Manga** — translated text or original script if available
+* **Webcomic Script / Text**
+
+### F. Interactive & Participatory Narratives
+
+* **Video-Game Scripts / Narrative Design Docs** — dialogue, lore, quest text
+* **Choose-Your-Own-Adventure / Interactive Fiction** — text-based
+* **Role-Playing Game (RPG) Transcripts** — actual-play sessions
+
+  * Standard RPG transcripts (e.g., *D\&D*, *Pathfinder* actual plays)
+  * Erotic Role-Playing transcripts (ERP)
+* **Role-Playing Game Scenarios / Modules** — written by GMs / designers
+
+---
+
+## II. Non-Fictional Forms
+
+### A. Academic & Scholarly Writing
+
+* Academic journal article (peer-reviewed)
+* Academic monograph / book
+* Dissertation / thesis
+* Conference paper / proceeding
+* Literature review
+* Research proposal
+* Textbook chapters
+
+### B. Journalistic Writing
+
+* News report (hard news)
+* Investigative journalism piece
+* Feature article (magazine or newspaper)
+* Opinion piece / op-ed
+* Editorial
+* Column (humor, advice, political)
+* Profile / interview article
+* Review (book, film, music, product, restaurant, etc.)
+* Blog post (informative / journalistic style)
+
+### C. Personal & Creative Non-Fiction
+
+* Memoir / autobiography
+* Biography
+* Personal essay
+* Travel writing / travelogue
+* Nature writing
+* Food writing / culinary non-fiction
+* Humor writing (non-fictional)
+* Diary / journal entries (intended for an audience or of historical interest)
+
+### D. Persuasive & Argumentative Writing
+
+*(Non-Academic / Journalistic)*
+
+* Political speeches / manifestos (transcripts)
+* Advocacy letters / white papers
+* Grant proposals
+* Marketing copy / advertising text
+* Business proposals / reports
+
+### E. Informative & Technical Writing
+
+* Technical manuals / user guides
+* How-to guides / instructional content
+* Scientific popularization articles / books
+* Reference works (e.g., encyclopedia entries)
+* FAQ documents
+* Legal documents (briefs, opinions — clarity & argumentation focus)
+* Medical information for laypeople
+* Case studies (business, medical, social-science)
+
+### F. Digital & User-Generated Content
+
+*(Text-Focused)*
+
+* Social-media posts (longer-form — Twitter threads, Substack, LinkedIn articles)
+* Forum posts / online discussions (argument, clarity, contribution)
+* Product descriptions (e-commerce)
+* User reviews (detailed, thoughtful)
+* Website content / copy (About Us, service pages)
+* Email newsletters
+
+---
+
+## III. Specialized & Erotic Content
+
+*(Explicitly listed for clarity; overlaps with some genres above)*
+
+* Erotic fiction — short stories, novellas, novels across sub-genres
+* Erotic poetry
+* BDSM scene scripts / narratives
+* Online erotic role-play logs (distinct from transcripts, often more narrative)
+
