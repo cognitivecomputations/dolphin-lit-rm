@@ -323,3 +323,5 @@ For those combinations with fewer than 1000 samples:
 synthetically generate more samples, using some existing samples as examples, and with the specific rubric x score definition
 
 in the end, each literature type will have 1000 examples of score 1, 2, 3, 4, and 5 for each rubric - which ought to be enough to train a reward model to score arbitrary prose on each rubric
+
+Train on https://huggingface.co/Qwen/WorldPM-72B
