@@ -1,0 +1,84 @@
+# Main run configuration
+# Paths can be relative to the project root or absolute.
+
+# Base directory for all runs. Each pipeline execution will create a subdirectory here.
+# e.g., ./output/runs/run_20231120_103000_abcdef
+runs_parent_dir: "./output/runs"
+default_log_level: "INFO"
+
+# API settings (can be overridden per stage)
+# These are examples; use environment variables for sensitive keys in production.
+default_llm_settings:
+  api_base_url: "http://localhost:8000/v1" # OpenAI-compatible endpoint
+  api_key: "YOUR_API_KEY_OR_NONE_IF_LOCAL" # or use "ENV:OPENAI_API_KEY"
+  timeout_seconds: 60
+  max_retries: 3
+
+# Stage-specific configurations
+ingestion:
+  # No specific LLM settings for ingestion typically
+  # max_items_per_dataset can be set in datasets.yml
+
+preprocessing:
+  filter:
+    min_response_tokens: 10
+    max_response_tokens: 4000
+    lang_id_threshold: 0.9 # for English
+    # blacklist_regex_patterns: # List of regex patterns
+    #   - "(?i)lorem ipsum"
+    #   - "<html"
+    deduplication_cache_db: "dedup_cache.lmdb" # Will be created in run_dir/artifacts/state/
+  segmentation:
+    max_chunk_tokens: 3800 # Target N-2k, e.g., 6000 - 2000
+    sentence_overlap_count: 1 # Number of sentences to overlap
+  prompt_reconstruction:
+    model_name: "NousResearch/Hermes-2-Pro-Mistral-7B" # Example
+    max_response_tokens_for_reconstruction: 1024
+    reconstructed_prompt_max_chars: 256
+    # llm_settings can override default_llm_settings
+    # llm_settings:
+    #   api_base_url: ...
+    #   model_name: ...
+
+classification:
+  model_name: "Qwen/Qwen1.5-7B-Chat" # Example for zero-shot
+  confidence_threshold: 0.7 # If applicable to the method
+  # llm_settings: ...
+
+normalization:
+  # Quotas applied after classification, across the combined dataset.
+  # Keys are 'class.top' or 'class.sub'. Values are max records.
+  # 'default' applies to classes not explicitly listed.
+  quotas:
+    class.top:
+      "fiction": 150000
+      "news": 100000
+      "essay": 80000
+      "poetry": 50000
+      "dialogue": 70000
+      "technical": 60000
+      "marketing": 40000
+      "unknown": 20000 # Max for items classified as unknown
+    default_quota_per_class: 30000 # Fallback if a class.top is not listed above
+
+scoring:
+  judge_model_name: "Qwen/Qwen1.5-32B-Chat" # Example, Qwen-3-30B-Instruct
+  max_tokens_per_metric_response: 8 # For parsing "0.xx"
+  # llm_settings: ...
+
+postprocessing:
+  calibration:
+    enabled: true
+    lower_percentile: 5
+    upper_percentile: 95
+  min_metrics_present_percent: 0.7 # Drop records with <70% of metrics scored
+  splits:
+    train: 0.90
+    validation: 0.05
+    test: 0.05
+  final_dataset_name_prefix: "dolphin_lit_rm_v0.1"
+
+# Tokenizer used for length checks, segmentation, etc.
+# Can be a Hugging Face tokenizer name or path.
+# If using tiktoken, this might be a model name like "gpt-4"
+tokenizer_name: "gpt-4" # For tiktoken, or a HF tokenizer path

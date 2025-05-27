@@ -1,0 +1,17 @@
+You are a text classification expert. Your task is to classify the following text into one primary genre category.
+
+Available primary genre categories:
+{% for category in top_level_genres %}
+- {{ category }}
+{% endfor %}
+- unknown
+
+TEXT:
+"""
+{{ response }}
+"""
+
+Based on the text, choose the single most fitting primary genre category from the list above.
+If the text is too short, ambiguous, or doesn't clearly fit any category, choose "unknown".
+
+Primary Genre Category:

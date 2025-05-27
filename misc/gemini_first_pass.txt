@@ -1,0 +1,3163 @@
+Okay, I understand the refinements. The new "Normalization (Quota Sampling)" stage is a key addition, and the run directory management for resumability is crucial.
+
+Here's the generated codebase structure and content, incorporating your latest feedback.
+
+---
+**`dolphin-lit-rm/pyproject.toml`**
+---
+```toml
+[tool.poetry]
+name = "dolphin-lit-rm"
+version = "0.1.0"
+description = "Data pipeline for Literary Reward Model training."
+authors = ["Your Name <you@example.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = ">=3.9,<3.12"
+pydantic = "^2.5.0"
+pydantic-settings = "^2.1.0"
+pyyaml = "^6.0"
+typer = {extras = ["all"], version = "^0.9.0"}
+requests = "^2.31.0"
+pyarrow = "^14.0.1"
+datasets = "^2.15.0" # Hugging Face datasets
+loguru = "^0.7.2"
+fasttext = "^0.9.2"
+spacy = "^3.7.2"
+# For spacy model: python -m spacy download en_core_web_sm
+lmdb = "^1.4.1"
+jinja2 = "^3.1.2"
+tqdm = "^4.66.1"
+tiktoken = "^0.5.1" # For token counting
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.4.3"
+ruff = "^0.1.7"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.scripts]
+dolphin-lit-rm = "dolphin_lit_rm.cli:app"
+```
+
+---
+**`dolphin-lit-rm/README.md`**
+---
+```markdown
+# Dolphin Literary Reward Model (LRM) Data Pipeline
+
+This project implements a data pipeline to process various text corpora into a format suitable for training a Literary Reward Model. The pipeline ingests raw data, filters, segments, classifies, reconstructs prompts, scores texts based on a rubric, and prepares final datasets.
+
+## Project Structure
+
+(Refer to the initial problem description for the detailed directory structure)
+
+## Setup
+
+1.  **Clone the repository:**
+    ```bash
+    git clone <repository-url>
+    cd dolphin-lit-rm
+    ```
+
+2.  **Install dependencies using Poetry:**
+    ```bash
+    poetry install
+    ```
+
+3.  **Download necessary NLP models:**
+    ```bash
+    poetry run python -m spacy download en_core_web_sm
+    # Download fastText lid.176.bin model if not automatically handled by the library
+    # (Refer to fastText documentation for model download)
+    ```
+
+## Configuration
+
+Configuration is managed through YAML files in `dolphin-lit-rm/config/`:
+
+*   `run.yml`: Main run parameters, API keys, model endpoints, paths, stage-specific settings.
+*   `datasets.yml`: Definitions of input datasets, their types, paths, and ingestion limits.
+*   `rubric.yml`: Metrics for the reward model.
+*   `prompts/`: Jinja templates for LLM interactions.
+
+Default configurations are provided. You can override them by:
+1.  Editing the YAML files directly.
+2.  Providing alternative config file paths via CLI arguments.
+3.  Overriding specific parameters via CLI arguments (where supported).
+
+## Usage
+
+The pipeline is controlled via a CLI tool: `dolphin-lit-rm`.
+
+**General Command Structure:**
+
+```bash
+dolphin-lit-rm [GLOBAL_OPTIONS] COMMAND [COMMAND_OPTIONS]
+```
+
+**Example: Running the full pipeline for a new run:**
+
+```bash
+poetry run dolphin-lit-rm process-all \
+    --run-config-file dolphin-lit-rm/config/run.yml \
+    --datasets-config-file dolphin-lit-rm/config/datasets.yml \
+    --rubric-config-file dolphin-lit-rm/config/rubric.yml
+```
+
+This will create a new run directory (e.g., `runs/run_YYYYMMDD_HHMMSS_xxxx`) containing logs, artifacts, and a copy of the configs used.
+
+**Example: Resuming a previous run:**
+
+```bash
+poetry run dolphin-lit-rm process-all --resume runs/run_YYYYMMDD_HHMMSS_xxxx
+```
+
+**Available Commands (Stages):**
+
+*   `ingest`: Ingest raw datasets.
+*   `preprocess`: Run pre-filtering, segmentation.
+*   `classify`: Classify texts by genre/sub-genre.
+*   `normalize`: Apply quota-based sampling.
+*   `reconstruct-prompts`: Generate prompts for prompt-less texts.
+*   `score`: Score texts using the judge model.
+*   `postprocess`: Calibrate scores and create final splits.
+*   `process-all`: Run all stages sequentially.
+
+Use `poetry run dolphin-lit-rm --help` and `poetry run dolphin-lit-rm <COMMAND> --help` for detailed options.
+
+## Run Directory
+
+Each execution of the pipeline operates within a "run directory".
+*   If `--resume [path_to_run_dir]` is specified, the pipeline attempts to resume from that directory.
+*   Otherwise, a new run directory is created (e.g., `runs/run_YYYYMMDD_HHMMSS_xxxxxx`).
+
+The run directory contains:
+*   `config/`: A copy of the configuration files used for the run.
+*   `logs/`: Log files for each stage.
+*   `artifacts/`: All intermediate and final data products.
+    *   `state/`: Files tracking processed items for resumability.
+    *   `raw/`, `filtered/`, `segmented/`, `classified/`, `normalized/`, `reconstructed/`, `scored/`, `final/`
+
+## Development
+
+(Add notes on running tests, linters, etc.)
+```
+
+---
+**`dolphin-lit-rm/dolphin-lit-rm/__init__.py`**
+---
+```python
+# Placeholder for package-level imports or initializations if needed.
+# For now, it can be empty.
+```
+
+---
+**`dolphin-lit-rm/dolphin-lit-rm/config/run.yml`**
+---
+```yaml
+# Main run configuration
+# Paths can be relative to the project root or absolute.
+
+# Base directory for all runs. Each pipeline execution will create a subdirectory here.
+# e.g., ./output/runs/run_20231120_103000_abcdef
+runs_parent_dir: "./output/runs"
+default_log_level: "INFO"
+
+# API settings (can be overridden per stage)
+# These are examples; use environment variables for sensitive keys in production.
+default_llm_settings:
+  api_base_url: "http://localhost:8000/v1" # OpenAI-compatible endpoint
+  api_key: "YOUR_API_KEY_OR_NONE_IF_LOCAL" # or use "ENV:OPENAI_API_KEY"
+  timeout_seconds: 60
+  max_retries: 3
+
+# Stage-specific configurations
+ingestion:
+  # No specific LLM settings for ingestion typically
+  # max_items_per_dataset can be set in datasets.yml
+
+preprocessing:
+  filter:
+    min_response_tokens: 10
+    max_response_tokens: 4000
+    lang_id_threshold: 0.9 # for English
+    # blacklist_regex_patterns: # List of regex patterns
+    #   - "(?i)lorem ipsum"
+    #   - "<html"
+    deduplication_cache_db: "dedup_cache.lmdb" # Will be created in run_dir/artifacts/state/
+  segmentation:
+    max_chunk_tokens: 3800 # Target N-2k, e.g., 6000 - 2000
+    sentence_overlap_count: 1 # Number of sentences to overlap
+  prompt_reconstruction:
+    model_name: "NousResearch/Hermes-2-Pro-Mistral-7B" # Example
+    max_response_tokens_for_reconstruction: 1024
+    reconstructed_prompt_max_chars: 256
+    # llm_settings can override default_llm_settings
+    # llm_settings:
+    #   api_base_url: ...
+    #   model_name: ...
+
+classification:
+  model_name: "Qwen/Qwen1.5-7B-Chat" # Example for zero-shot
+  confidence_threshold: 0.7 # If applicable to the method
+  # llm_settings: ...
+
+normalization:
+  # Quotas applied after classification, across the combined dataset.
+  # Keys are 'class.top' or 'class.sub'. Values are max records.
+  # 'default' applies to classes not explicitly listed.
+  quotas:
+    class.top:
+      "fiction": 150000
+      "news": 100000
+      "essay": 80000
+      "poetry": 50000
+      "dialogue": 70000
+      "technical": 60000
+      "marketing": 40000
+      "unknown": 20000 # Max for items classified as unknown
+    default_quota_per_class: 30000 # Fallback if a class.top is not listed above
+
+scoring:
+  judge_model_name: "Qwen/Qwen1.5-32B-Chat" # Example, Qwen-3-30B-Instruct
+  max_tokens_per_metric_response: 8 # For parsing "0.xx"
+  # llm_settings: ...
+
+postprocessing:
+  calibration:
+    enabled: true
+    lower_percentile: 5
+    upper_percentile: 95
+  min_metrics_present_percent: 0.7 # Drop records with <70% of metrics scored
+  splits:
+    train: 0.90
+    validation: 0.05
+    test: 0.05
+  final_dataset_name_prefix: "dolphin_lit_rm_v0.1"
+
+# Tokenizer used for length checks, segmentation, etc.
+# Can be a Hugging Face tokenizer name or path.
+# If using tiktoken, this might be a model name like "gpt-4"
+tokenizer_name: "gpt-4" # For tiktoken, or a HF tokenizer path
+```
+
+---
+**`dolphin-lit-rm/dolphin-lit-rm/config/datasets.yml`**
+---
+```yaml
+# Configuration for input datasets
+# Each item defines a dataset to be ingested.
+
+datasets:
+  - name: "sharegpt_example"
+    # path_or_hf_id: "path/to/your/sharegpt_data.jsonl"
+    path_or_hf_id: "HeliosAbduction/ShareGPT-CN-ZH-TW-EN-TH-JA-KO" # Example HF dataset
+    format: "hf_dataset" # jsonl, arrow, hf_dataset, text, csv
+    type: "A" # Prompt+Assistant
+    # For hf_dataset, specify split and column names if not standard
+    hf_dataset_config:
+      split: "train" # Or "train[:10%]"
+      # Assuming ShareGPT-like structure, this will be handled by the ingester
+      # prompt_column: "conversations.from='human'" # Simplified, actual logic in ingester
+      # response_column: "conversations.from='assistant'" # Simplified
+    max_items: 1000 # Max items to ingest from this source (int or "10%")
+    # lang_filter: "en" # Optional: pre-filter by language during ingestion if known
+
+  - name: "reddit_stories_example"
+    path_or_hf_id: "path/to/your/reddit_stories.txt" # One story per line
+    format: "text"
+    type: "B" # Standalone short pieces
+    max_items: 500
+
+  - name: "longform_articles_example"
+    path_or_hf_id: "path/to/your/articles_dir/" # Directory of .txt files
+    format: "text_dir" # Special format for directory of text files
+    type: "C" # Long-form documents
+    max_items: 100 # Max number of files to process from this directory
+
+# Add more datasets as needed
+# - name: "another_dataset"
+#   path_or_hf_id: "user/my_custom_dataset_on_hf"
+#   format: "hf_dataset"
+#   type: "B"
+#   hf_dataset_config:
+#     split: "train"
+#     text_column: "text_content" # If it's a dataset of standalone texts
+#   max_items: "5%"
+```
+
+---
+**`dolphin-lit-rm/dolphin-lit-rm/config/rubric.yml`**
+---
+```yaml
+# Rubric definition for the literary reward model
+
+metrics:
+  - name: "narrative_coherence"
+    description: "Rate the text for Narrative Coherence. This refers to how well the story or text flows logically, whether events and character actions make sense within the established context, and if the narrative maintains a consistent internal logic."
+    prompt_hint: "Evaluate the logical flow and consistency of the narrative."
+
+  - name: "stylistic_originality"
+    description: "Rate the text for Stylistic Originality. This assesses the uniqueness and creativity of the writing style, use of language, voice, and literary devices. Does it offer a fresh perspective or a distinctive authorial signature?"
+    prompt_hint: "Assess the uniqueness and creativity of the writing style."
+
+  - name: "emotional_impact"
+    description: "Rate the text for Emotional Impact. This measures the extent to which the text evokes feelings or emotional responses in the reader, such as joy, sadness, suspense, or empathy."
+    prompt_hint: "Evaluate the text's ability to evoke emotional responses."
+
+  - name: "clarity"
+    description: "Rate the text for Clarity. This refers to how clear, precise, and easy to understand the language and ideas are. Is the writing free of ambiguity and confusion?"
+    prompt_hint: "Assess the clearness and precision of language and ideas."
+
+  - name: "factual_correctness" # Applicable for non-fiction
+    description: "Rate the text for Factual Correctness (if applicable, otherwise assume neutral or high if not a factual piece). This evaluates the accuracy of any factual claims, data, or information presented. For purely fictional or creative pieces where this doesn't apply, consider it high or not applicable."
+    prompt_hint: "Evaluate the accuracy of factual claims (for non-fiction)."
+
+  - name: "overall_quality"
+    description: "Rate the text for Overall Quality. This is a holistic assessment considering all aspects like engagement, craftsmanship, insight, and impact. How good is this piece of writing overall?"
+    prompt_hint: "Provide a holistic assessment of the writing's overall quality."
+```
+
+---
+**`dolphin-lit-rm/dolphin-lit-rm/config/prompts/scoring.jinja`**
+---
+```jinja
+You are an expert literary critic. Your task is to evaluate the following text based on several distinct literary metrics. For each metric, provide a score on a continuous scale from 0.0 (worst) to 1.0 (best). Output only the numerical score for each metric.
+
+TEXT:
+"""
+{{ response }}
+"""
+
+---
+{% for metric in metrics %}
+METRIC: {{ metric.name }}
+DESCRIPTION: {{ metric.description }}
+HINT: {{ metric.prompt_hint }}
+Score for {{ metric.name }} (0.0-1.0):
+{% endfor %}
+```
+This template expects the LLM to output scores sequentially, like:
+```
+Score for narrative_coherence (0.0-1.0):
+0.75
+Score for stylistic_originality (0.0-1.0):
+0.60
+...
+```
+Parsing will need to extract these.
+
+---
+**`dolphin-lit-rm/dolphin-lit-rm/config/prompts/prompt_reconstruction.jinja`**
+---
+```jinja
+Given the following assistant's answer, write *one* plausible and concise user prompt that could have realistically produced this answer. The prompt should sound like it was written by a human.
+
+Assistant's Answer:
+"""
+{{ response }}
+"""
+
+User Prompt:
+```
+
+---
+**`dolphin-lit-rm/dolphin-lit-rm/config/prompts/classification.jinja`**
+---
+```jinja
+You are a text classification expert. Your task is to classify the following text into one primary genre category.
+
+Available primary genre categories:
+{% for category in top_level_genres %}
+- {{ category }}
+{% endfor %}
+- unknown
+
+TEXT:
+"""
+{{ response }}
+"""
+
+Based on the text, choose the single most fitting primary genre category from the list above.
+If the text is too short, ambiguous, or doesn't clearly fit any category, choose "unknown".
+
+Primary Genre Category:
+```
+(*Note: `genre_taxonomy.yml` is not explicitly requested but implied by `classification/classifier.py`. For now, the prompt lists genres passed to it.*)
+
+---
+**`dolphin-lit-rm/dolphin-lit-rm/utils/schema_def.py`** (was `schema.py`)
+---
+```python
+import hashlib
+from typing import Dict, List, Optional, Any, Literal
+from pydantic import BaseModel, Field
+
+PromptType = Literal["human", "synthetic", "reconstructed"]
+
+class Metadata(BaseModel):
+    prompt_type: Optional[PromptType] = None
+    source_path: Optional[str] = None # Filesystem trace for Type C
+    char_span: Optional[List[int]] = None # For segmented long documents [start_char, end_char]
+    lang: Optional[str] = None
+    original_id: Optional[str] = None # ID from the source dataset, if available
+    # Add other relevant metadata fields as needed
+    # e.g. source_url, original_split_from_source
+
+class ClassificationLabels(BaseModel):
+    top: Optional[str] = None # Top-level genre, e.g., fiction, news
+    sub: Optional[str] = None # Sub-genre, e.g., sci-fi, political_news
+
+class Record(BaseModel):
+    id: str # Deterministic hash: sha256(source_name + original_id_or_hash_of_content + segment_offset)
+    source_dataset_name: str # Short name of the source dataset (e.g., "sharegpt")
+    # orig_split: Optional[str] = None # Original split if any (can be in meta)
+    prompt: Optional[str] = None
+    response: str # The actual text chunk
+    meta: Metadata = Field(default_factory=Metadata)
+    classification: ClassificationLabels = Field(default_factory=ClassificationLabels)
+    scores: Dict[str, Optional[float]] = Field(default_factory=dict) # Metric_name -> score
+
+    # Custom fields for pipeline control, not part of the final schema for RM training
+    # These might be dropped before final export or used for internal tracking
+    pipeline_internal_status: Optional[str] = Field(None, exclude=True) # e.g. "type_C_needs_segmentation"
+
+def generate_record_id(
+    source_dataset_name: str,
+    source_specific_id: Optional[str] = None,
+    content_for_hash: Optional[str] = None,
+    segment_index: Optional[int] = None
+) -> str:
+    """
+    Generates a deterministic ID for a record.
+    Uses source_specific_id if available, otherwise hashes content.
+    Includes segment_index for segmented documents.
+    """
+    base_string = source_dataset_name
+    if source_specific_id:
+        base_string += f":{source_specific_id}"
+    elif content_for_hash:
+        # Use a hash of the initial content if no stable ID is available
+        # This is important for Type B/C where items might not have inherent IDs
+        content_hash = hashlib.sha256(content_for_hash.encode('utf-8')).hexdigest()[:16]
+        base_string += f":contenthash:{content_hash}"
+    else:
+        # Fallback, though ideally one of the above should be provided
+        # This might happen if we only have an index from a list without content or ID yet
+        # Consider raising an error if neither ID nor content is available for hashing
+        import uuid
+        base_string += f":uuid:{uuid.uuid4().hex}"
+
+
+    if segment_index is not None:
+        base_string += f":seg:{segment_index}"
+    
+    return f"sha256:{hashlib.sha256(base_string.encode('utf-8')).hexdigest()}"
+
+```
+
+---
+**`dolphin-lit-rm/dolphin-lit-rm/utils/file_io.py`** (was `io.py`)
+---
+```python
+import json
+from pathlib import Path
+from typing import List, Dict, Any, Iterator, Union
+import pyarrow as pa
+from datasets import Dataset, DatasetDict, load_dataset, Features, Value
+from loguru import logger
+
+from dolphin_lit_rm.utils.schema_def import Record # Assuming schema_def.py
+
+def save_records_to_arrow(records: List[Dict[str, Any]], output_path: Path, schema: Optional[pa.Schema] = None) -> None:
+    """Saves a list of record dictionaries to an Arrow file."""
+    if not records:
+        logger.warning(f"No records to save to {output_path}")
+        # Create an empty file with schema if provided, or handle as needed
+        if schema:
+            table = pa.Table.from_arrays([[] for _ in schema.names], schema=schema)
+            with pa.OSFile(str(output_path), 'wb') as sink:
+                with pa.ipc.new_file(sink, schema=table.schema) as writer:
+                    writer.write_table(table)
+        return
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        # Convert list of Pydantic models (if they are) or dicts to a Dataset
+        # This is a common pattern if records are [record.model_dump() for record in pydantic_records]
+        # For HF Datasets, it's often easier to create a Dataset object first
+        
+        # Dynamically create features if not provided or infer from first record
+        # For simplicity, let's assume records are dicts and infer
+        hf_dataset = Dataset.from_list(records)
+        hf_dataset.to_parquet(str(output_path)) # .arrow often means Parquet for HF Datasets
+        logger.info(f"Saved {len(records)} records to {output_path}")
+    except Exception as e:
+        logger.error(f"Failed to save records to {output_path}: {e}")
+        # Fallback or re-raise
+        # For robustness, could try saving as JSONL if Arrow fails for some reason
+        # with output_path.with_suffix(".jsonl").open("w") as f:
+        #     for record in records:
+        #         f.write(json.dumps(record) + "\n")
+        # logger.warning(f"Saved as JSONL fallback: {output_path.with_suffix('.jsonl')}")
+        raise
+
+def load_records_from_arrow(file_path: Path) -> Dataset:
+    """Loads records from an Arrow file into a Hugging Face Dataset."""
+    if not file_path.exists():
+        logger.warning(f"File not found: {file_path}, returning empty Dataset.")
+        # Define an empty schema based on Record Pydantic model for consistency
+        # This is complex; for now, let's rely on HF to handle empty if it can
+        # Or return an empty list and let caller handle it
+        return Dataset.from_list([]) 
+    try:
+        dataset = Dataset.from_parquet(str(file_path))
+        logger.info(f"Loaded {len(dataset)} records from {file_path}")
+        return dataset
+    except Exception as e:
+        logger.error(f"Failed to load records from {file_path}: {e}")
+        raise
+
+def stream_jsonl_file(file_path: Path) -> Iterator[Dict[str, Any]]:
+    """Streams records from a JSONL file."""
+    with file_path.open("r", encoding="utf-8") as f:
+        for line in f:
+            if line.strip():
+                try:
+                    yield json.loads(line)
+                except json.JSONDecodeError as e:
+                    logger.warning(f"Skipping malformed JSON line in {file_path}: {e} - Line: {line[:100]}...")
+
+def stream_text_file(file_path: Path) -> Iterator[str]:
+    """Streams lines from a text file."""
+    with file_path.open("r", encoding="utf-8") as f:
+        for line in f:
+            yield line.strip()
+
+def get_hf_dataset(
+    path_or_hf_id: str,
+    format_type: str,
+    config: Dict[str, Any], # dataset specific config from datasets.yml
+    max_items: Optional[Union[int, str]] = None
+) -> Dataset:
+    """
+    Loads a dataset from various sources into a Hugging Face Dataset object.
+    Handles max_items for slicing.
+    """
+    dataset_args = config.get("hf_dataset_config", {})
+    split = dataset_args.get("split", "train") # Default to train
+
+    if isinstance(max_items, str) and "%" in max_items:
+        percentage = int(max_items.replace("%", ""))
+        split_arg = f"{split}[:{percentage}%]"
+    elif isinstance(max_items, int):
+        split_arg = f"{split}[:{max_items}]"
+    else:
+        split_arg = split
+
+    logger.info(f"Loading dataset: {path_or_hf_id}, format: {format_type}, split_arg: {split_arg}")
+
+    if format_type == "hf_dataset":
+        ds = load_dataset(path_or_hf_id, split=split_arg, name=dataset_args.get("name"))
+    elif format_type == "jsonl":
+        ds = load_dataset("json", data_files=path_or_hf_id, split=split_arg)
+    elif format_type == "arrow" or format_type == "parquet":
+        # load_dataset can also load local arrow/parquet files
+        ds = Dataset.from_parquet(path_or_hf_id) # Assumes single file
+        if max_items: # Manual slicing after load for local parquet/arrow
+             if isinstance(max_items, str) and "%" in max_items:
+                num_to_take = int(len(ds) * (int(max_items.replace("%", "")) / 100))
+                ds = ds.select(range(min(num_to_take, len(ds))))
+             elif isinstance(max_items, int):
+                ds = ds.select(range(min(max_items, len(ds))))
+
+    elif format_type == "text":
+        # load_dataset can load text files, each line becomes a record
+        ds = load_dataset("text", data_files=path_or_hf_id, split=split_arg)
+    elif format_type == "csv":
+        ds = load_dataset("csv", data_files=path_or_hf_id, split=split_arg)
+    # 'text_dir' needs custom handling in the ingester, not directly by load_dataset for multiple files as one dataset easily
+    else:
+        raise ValueError(f"Unsupported dataset format: {format_type}")
+    
+    logger.info(f"Successfully loaded {len(ds)} items for {path_or_hf_id}")
+    return ds
+
+```
+
+---
+**`dolphin-lit-rm/dolphin-lit-rm/utils/text_utils.py`**
+---
+```python
+import tiktoken
+from loguru import logger
+
+# Global tokenizer instance cache
+_tokenizers = {}
+
+def get_tokenizer(tokenizer_name: str = "gpt-4"):
+    """
+    Initializes and returns a tiktoken tokenizer.
+    Caches tokenizer instances for efficiency.
+    """
+    if tokenizer_name not in _tokenizers:
+        try:
+            _tokenizers[tokenizer_name] = tiktoken.encoding_for_model(tokenizer_name)
+        except KeyError:
+            logger.warning(f"Model {tokenizer_name} not found for tiktoken. Trying cl100k_base.")
+            try:
+                _tokenizers[tokenizer_name] = tiktoken.get_encoding("cl100k_base")
+            except Exception as e:
+                logger.error(f"Failed to initialize tiktoken tokenizer {tokenizer_name} or cl100k_base: {e}")
+                raise
+    return _tokenizers[tokenizer_name]
+
+def count_tokens(text: str, tokenizer_name: str = "gpt-4") -> int:
+    """Counts the number of tokens in a text string using tiktoken."""
+    if not text:
+        return 0
+    tokenizer = get_tokenizer(tokenizer_name)
+    return len(tokenizer.encode(text, disallowed_special=()))
+
+def clean_text(text: str) -> str:
+    """Basic text cleaning."""
+    # Placeholder for more sophisticated cleaning if needed
+    # e.g., unicode normalization, whitespace stripping
+    if text is None:
+        return ""
+    text = text.strip()
+    # Add more cleaning rules here, e.g., removing excessive newlines
+    text = "\n".join([line.strip() for line in text.splitlines() if line.strip()])
+    return text
+
+# Add other text utilities as needed, e.g., regex cleaning, sentence splitting (though spacy is used for segmentation)
+```
+
+---
+**`dolphin-lit-rm/dolphin-lit-rm/utils/llm_api_client.py`**
+---
+```python
+import time
+import requests
+from typing import Dict, Any, Optional
+from loguru import logger
+import os
+
+class LLMAPIClient:
+    def __init__(
+        self,
+        api_base_url: str,
+        api_key: Optional[str] = None,
+        default_model_name: Optional[str] = None,
+        timeout_seconds: int = 60,
+        max_retries: int = 3,
+    ):
+        self.api_base_url = api_base_url.rstrip('/')
+        if api_key and api_key.startswith("ENV:"):
+            env_var_name = api_key.split("ENV:")[1]
+            self.api_key = os.getenv(env_var_name)
+            if not self.api_key:
+                logger.warning(f"Environment variable {env_var_name} for API key not found.")
+        else:
+            self.api_key = api_key
+        
+        self.default_model_name = default_model_name
+        self.timeout_seconds = timeout_seconds
+        self.max_retries = max_retries
+        self.session = requests.Session()
+        if self.api_key:
+            self.session.headers.update({"Authorization": f"Bearer {self.api_key}"})
+        self.session.headers.update({"Content-Type": "application/json"})
+
+    def make_request(
+        self,
+        prompt: Optional[str] = None, # For completion
+        messages: Optional[list] = None, # For chat completion
+        model_name: Optional[str] = None,
+        temperature: float = 0.0,
+        max_tokens: int = 128,
+        stop_sequences: Optional[list] = None,
+        **kwargs # Other API specific params
+    ) -> Dict[str, Any]:
+        """
+        Makes a request to an OpenAI-compatible completions or chat completions endpoint.
+        Prioritizes `messages` for chat, falls back to `prompt` for completion if `messages` is None.
+        """
+        if not messages and not prompt:
+            raise ValueError("Either 'prompt' or 'messages' must be provided.")
+
+        actual_model_name = model_name or self.default_model_name
+        if not actual_model_name:
+            raise ValueError("Model name must be provided either at init or per request.")
+
+        payload = {
+            "model": actual_model_name,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            **kwargs
+        }
+        if stop_sequences:
+            payload["stop"] = stop_sequences
+
+        # Determine endpoint and add prompt/messages
+        if messages:
+            # Prefer chat completions endpoint if messages are provided
+            endpoint = f"{self.api_base_url}/chat/completions"
+            payload["messages"] = messages
+        elif prompt:
+            # Fallback to completions endpoint if only prompt is provided
+            endpoint = f"{self.api_base_url}/completions"
+            payload["prompt"] = prompt
+        else: # Should be caught by earlier check
+             raise ValueError("Either 'prompt' or 'messages' must be provided.")
+
+
+        for attempt in range(self.max_retries + 1):
+            try:
+                response = self.session.post(
+                    endpoint,
+                    json=payload,
+                    timeout=self.timeout_seconds,
+                )
+                response.raise_for_status()  # Raises HTTPError for bad responses (4XX or 5XX)
+                return response.json()
+            except requests.exceptions.RequestException as e:
+                logger.warning(
+                    f"API request to {endpoint} failed (attempt {attempt + 1}/{self.max_retries + 1}): {e}"
+                )
+                if attempt == self.max_retries:
+                    logger.error(f"API request failed after {self.max_retries + 1} attempts.")
+                    raise
+                time.sleep(2**attempt)  # Exponential backoff
+        return {} # Should not be reached due to raise in loop
+
+    def get_completion(self, response_json: Dict[str, Any], is_chat: bool) -> Optional[str]:
+        """Extracts the text completion from the API response."""
+        try:
+            if is_chat: # Chat completion
+                if response_json.get("choices") and response_json["choices"][0].get("message"):
+                    return response_json["choices"][0]["message"].get("content", "").strip()
+            else: # Legacy completion
+                if response_json.get("choices"):
+                    return response_json["choices"][0].get("text", "").strip()
+            logger.warning(f"Could not extract completion from response: {response_json}")
+            return None
+        except (IndexError, KeyError, AttributeError) as e:
+            logger.warning(f"Error parsing completion from response: {e}. Response: {response_json}")
+            return None
+
+```
+
+---
+**`dolphin-lit-rm/dolphin-lit-rm/utils/state_manager.py`**
+---
+```python
+import json
+from pathlib import Path
+from typing import Set, Optional
+from loguru import logger
+
+class StateManager:
+    def __init__(self, state_dir: Path):
+        self.state_dir = Path(state_dir)
+        self.state_dir.mkdir(parents=True, exist_ok=True)
+        self.processed_ids_cache: Dict[str, Set[str]] = {} # Cache loaded sets of IDs
+
+    def _get_state_file_path(self, stage_name: str, dataset_name: Optional[str] = None) -> Path:
+        """Generates the path for a state file."""
+        filename = f"{stage_name}"
+        if dataset_name:
+            filename += f"_{dataset_name}"
+        filename += "_processed_ids.jsonl"
+        return self.state_dir / filename
+
+    def _load_processed_ids(self, state_file_path: Path) -> Set[str]:
+        """Loads a set of processed IDs from a file."""
+        if state_file_path.exists():
+            with state_file_path.open("r") as f:
+                return {line.strip() for line in f if line.strip()}
+        return set()
+
+    def get_processed_ids(self, stage_name: str, dataset_name: Optional[str] = None) -> Set[str]:
+        """
+        Gets the set of processed IDs for a given stage and optional dataset.
+        Uses a cache to avoid repeated file reads.
+        """
+        cache_key = f"{stage_name}_{dataset_name}" if dataset_name else stage_name
+        if cache_key not in self.processed_ids_cache:
+            state_file = self._get_state_file_path(stage_name, dataset_name)
+            self.processed_ids_cache[cache_key] = self._load_processed_ids(state_file)
+            logger.debug(f"Loaded {len(self.processed_ids_cache[cache_key])} processed IDs for {cache_key} from {state_file}")
+        return self.processed_ids_cache[cache_key]
+
+    def add_processed_id(self, record_id: str, stage_name: str, dataset_name: Optional[str] = None) -> None:
+        """Adds a processed ID to the state file and cache for a given stage and dataset."""
+        state_file = self._get_state_file_path(stage_name, dataset_name)
+        with state_file.open("a") as f:
+            f.write(f"{record_id}\n")
+        
+        cache_key = f"{stage_name}_{dataset_name}" if dataset_name else stage_name
+        if cache_key in self.processed_ids_cache:
+            self.processed_ids_cache[cache_key].add(record_id)
+        # else: it will be loaded on next get_processed_ids call
+
+    def add_processed_ids_batch(self, record_ids: List[str], stage_name: str, dataset_name: Optional[str] = None) -> None:
+        """Adds a batch of processed IDs to the state file and cache."""
+        if not record_ids:
+            return
+        state_file = self._get_state_file_path(stage_name, dataset_name)
+        with state_file.open("a") as f:
+            for record_id in record_ids:
+                f.write(f"{record_id}\n")
+        
+        cache_key = f"{stage_name}_{dataset_name}" if dataset_name else stage_name
+        if cache_key in self.processed_ids_cache:
+            self.processed_ids_cache[cache_key].update(record_ids)
+        logger.debug(f"Added batch of {len(record_ids)} IDs to {state_file} for {cache_key}")
+
+    def is_processed(self, record_id: str, stage_name: str, dataset_name: Optional[str] = None) -> bool:
+        """Checks if a record ID has been processed for a given stage and dataset."""
+        return record_id in self.get_processed_ids(stage_name, dataset_name)
+
+    def clear_state(self, stage_name: str, dataset_name: Optional[str] = None) -> None:
+        """Clears the state for a given stage and dataset (deletes the state file)."""
+        state_file = self._get_state_file_path(stage_name, dataset_name)
+        cache_key = f"{stage_name}_{dataset_name}" if dataset_name else stage_name
+        if state_file.exists():
+            state_file.unlink()
+            logger.info(f"Cleared state file: {state_file}")
+        if cache_key in self.processed_ids_cache:
+            del self.processed_ids_cache[cache_key]
+            logger.info(f"Cleared cache for state: {cache_key}")
+
+```
+
+---
+**`dolphin-lit-rm/dolphin-lit-rm/core_configs.py`** (New file for Pydantic models of configs)
+---
+```python
+from typing import Dict, List, Optional, Any, Literal
+from pydantic import BaseModel, Field, FilePath, DirectoryPath
+
+# --- Pydantic models for configuration files ---
+
+class LLMSettings(BaseModel):
+    api_base_url: Optional[str] = None
+    api_key: Optional[str] = None
+    model_name: Optional[str] = None
+    timeout_seconds: Optional[int] = None
+    max_retries: Optional[int] = None
+
+class FilterConfig(BaseModel):
+    min_response_tokens: int = 10
+    max_response_tokens: int = 4000
+    lang_id_threshold: float = 0.9
+    blacklist_regex_patterns: List[str] = Field(default_factory=list)
+    deduplication_cache_db: str = "dedup_cache.lmdb"
+
+class SegmentationConfig(BaseModel):
+    max_chunk_tokens: int = 3800
+    sentence_overlap_count: int = 1
+
+class PromptReconstructionConfig(BaseModel):
+    model_name: Optional[str] = None # Specific model for this task
+    max_response_tokens_for_reconstruction: int = 1024
+    reconstructed_prompt_max_chars: int = 256
+    llm_settings: Optional[LLMSettings] = None # Overrides default
+
+class PreprocessingConfig(BaseModel):
+    filter: FilterConfig = Field(default_factory=FilterConfig)
+    segmentation: SegmentationConfig = Field(default_factory=SegmentationConfig)
+    prompt_reconstruction: PromptReconstructionConfig = Field(default_factory=PromptReconstructionConfig)
+
+class ClassificationConfig(BaseModel):
+    model_name: Optional[str] = None # Specific model for this task
+    confidence_threshold: Optional[float] = None # If applicable
+    llm_settings: Optional[LLMSettings] = None # Overrides default
+    # Example: if using a fixed list of genres for zero-shot
+    # top_level_genres_for_prompt: List[str] = ["fiction", "news", "essay", "poetry", "dialogue", "technical", "marketing", "academic", "script", "other"]
+    genre_taxonomy_file: Optional[FilePath] = None # Path to a more detailed taxonomy YAML
+
+class NormalizationQuotaConfig(BaseModel):
+    # class.top: {"news": 10000, "fiction": 15000}
+    quotas: Dict[str, Dict[str, int]] = Field(default_factory=dict)
+    default_quota_per_class: int = 5000
+
+class ScoringConfig(BaseModel):
+    judge_model_name: Optional[str] = None
+    max_tokens_per_metric_response: int = 8
+    llm_settings: Optional[LLMSettings] = None # Overrides default
+
+class CalibrationConfig(BaseModel):
+    enabled: bool = True
+    lower_percentile: int = 5
+    upper_percentile: int = 95
+
+class PostprocessingSplitsConfig(BaseModel):
+    train: float = 0.90
+    validation: float = 0.05
+    test: float = 0.05
+
+class PostprocessingConfig(BaseModel):
+    calibration: CalibrationConfig = Field(default_factory=CalibrationConfig)
+    min_metrics_present_percent: float = 0.7
+    splits: PostprocessingSplitsConfig = Field(default_factory=PostprocessingSplitsConfig)
+    final_dataset_name_prefix: str = "dolphin_lit_rm_v0.1"
+
+class RunConfig(BaseModel):
+    runs_parent_dir: DirectoryPath = Field(default_factory=lambda: Path("./output/runs"))
+    default_log_level: str = "INFO"
+    
+    default_llm_settings: LLMSettings = Field(default_factory=LLMSettings)
+    
+    # Stage specific configs
+    # ingestion: Optional[Dict[str, Any]] = None # Ingestion config is mostly in datasets.yml
+    preprocessing: PreprocessingConfig = Field(default_factory=PreprocessingConfig)
+    classification: ClassificationConfig = Field(default_factory=ClassificationConfig)
+    normalization: NormalizationQuotaConfig = Field(default_factory=NormalizationQuotaConfig)
+    # prompt_reconstruction is part of preprocessing config now
+    scoring: ScoringConfig = Field(default_factory=ScoringConfig)
+    postprocessing: PostprocessingConfig = Field(default_factory=PostprocessingConfig)
+    
+    tokenizer_name: str = "gpt-4" # For tiktoken, or a HF tokenizer path
+
+    # These will be set at runtime by the CLI based on --run-dir or new creation
+    current_run_dir: Optional[DirectoryPath] = None # Actual path to the current run (e.g. output/runs/run_xyz)
+    artifacts_dir: Optional[DirectoryPath] = None
+    logs_dir: Optional[DirectoryPath] = None
+    state_dir: Optional[DirectoryPath] = None
+    run_config_copy_path: Optional[FilePath] = None # Path where this config is copied for the run
+
+    def get_llm_settings_for_stage(self, stage_name: str) -> LLMSettings:
+        """Merges default LLM settings with stage-specific overrides."""
+        stage_config_map = {
+            "prompt_reconstruction": self.preprocessing.prompt_reconstruction,
+            "classification": self.classification,
+            "scoring": self.scoring,
+        }
+        
+        stage_specific_config = stage_config_map.get(stage_name)
+        
+        # Start with a copy of default settings
+        merged_settings = self.default_llm_settings.model_copy(deep=True)
+
+        if stage_specific_config and hasattr(stage_specific_config, 'llm_settings') and stage_specific_config.llm_settings:
+            # Update with non-None values from stage-specific LLM settings
+            stage_llm_overrides = stage_specific_config.llm_settings.model_dump(exclude_none=True)
+            merged_settings = merged_settings.model_copy(update=stage_llm_overrides)
+        
+        # Also, some stages have a direct model_name attribute (e.g., classification.model_name)
+        # This should take precedence if stage_specific_config.llm_settings.model_name is not set
+        if stage_specific_config and hasattr(stage_specific_config, 'model_name') and stage_specific_config.model_name:
+            if merged_settings.model_name is None : # Only if not already set by llm_settings block
+                 merged_settings.model_name = stage_specific_config.model_name
+        
+        return merged_settings
+
+
+class DatasetEntryConfig(BaseModel):
+    name: str
+    path_or_hf_id: str
+    format: Literal["jsonl", "arrow", "parquet", "hf_dataset", "text", "csv", "text_dir"]
+    type: Literal["A", "B", "C"] # A: Prompt+Assistant, B: Standalone, C: Long-form
+    hf_dataset_config: Optional[Dict[str, Any]] = None # e.g., split, name, column mappings
+    max_items: Optional[Union[int, str]] = None # e.g., 1000 or "10%"
+    # lang_filter: Optional[str] = None # Example of dataset-specific pre-filter
+
+class DatasetsConfig(BaseModel):
+    datasets: List[DatasetEntryConfig]
+
+class MetricConfig(BaseModel):
+    name: str
+    description: str
+    prompt_hint: str # Short hint for the scoring prompt
+
+class RubricConfig(BaseModel):
+    metrics: List[MetricConfig]
+
+# --- Global AppConfig to hold all loaded configurations ---
+class AppConfig(BaseModel):
+    run: RunConfig
+    datasets: DatasetsConfig
+    rubric: RubricConfig
+
+    # To be populated by CLI after run_dir is established
+    state_manager: Optional[Any] = None # StateManager instance
+    
+    class Config:
+        arbitrary_types_allowed = True # For StateManager
+
+```
+
+I will continue with the `ingestion`, `preprocessing`, `classification`, `scoring`, `normalization` (new), `postprocessing` modules, and finally the `cli.py`. This is a large undertaking, so I'll provide the structure and key logic for each.
+
+Let's proceed with the module implementations.Okay, this is a substantial amount of code. I'll generate the Python modules for each stage of the pipeline, keeping in mind the new order and the `Normalization` stage. I'll also sketch out the `cli.py` which will be central to orchestrating everything.
+
+---
+**`dolphin-lit-rm/dolphin-lit-rm/ingestion/sharegpt.py`**
+---
+```python
+from typing import List, Dict, Any, Iterator
+from datasets import Dataset
+from loguru import logger
+
+from dolphin_lit_rm.utils.schema_def import Record, Metadata, generate_record_id
+from dolphin_lit_rm.core_configs import DatasetEntryConfig
+
+def process_sharegpt_dataset(
+    dataset_config: DatasetEntryConfig,
+    raw_dataset: Dataset, # Loaded by file_io.get_hf_dataset
+    tokenizer_name: str
+) -> Iterator[Record]:
+    """
+    Processes a ShareGPT-like dataset.
+    Extracts the last user prompt and the assistant reply.
+    """
+    logger.info(f"Processing ShareGPT-style dataset: {dataset_config.name}")
+    
+    # Determine column names - this might need to be more flexible or configurable
+    # For standard ShareGPT, conversations is a list of dicts with "from" and "value"
+    # For other formats, this logic would need to adapt based on dataset_config.hf_dataset_config
+    conversations_col = dataset_config.hf_dataset_config.get("conversations_column", "conversations")
+    # Some ShareGPT variants might have 'id' or 'dataset' fields at the top level
+    id_col = dataset_config.hf_dataset_config.get("id_column", "id")
+
+
+    for i, item in enumerate(raw_dataset):
+        try:
+            # Try to get a unique ID from the source item
+            source_item_id = item.get(id_col)
+            if source_item_id is None: # Fallback if 'id' column is not present or None
+                source_item_id = f"item_{i}"
+
+            conversations = item.get(conversations_col)
+            if not conversations or not isinstance(conversations, list) or len(conversations) < 2:
+                logger.warning(f"Skipping item {source_item_id} in {dataset_config.name}: Not enough turns or invalid format.")
+                continue
+
+            # Find the last user prompt and the immediately following assistant reply
+            last_user_prompt = None
+            assistant_reply = None
+
+            # Iterate backwards to find the last assistant turn preceded by a user turn
+            for turn_idx in range(len(conversations) - 1, 0, -1):
+                current_turn = conversations[turn_idx]
+                prev_turn = conversations[turn_idx-1]
+
+                # Heuristic: 'from' might be 'human', 'user', 'gpt', 'assistant', etc.
+                # This needs to be robust or configurable.
+                is_current_assistant = 'assistant' in current_turn.get('from','').lower() or \
+                                       'gpt' in current_turn.get('from','').lower()
+                is_prev_user = 'human' in prev_turn.get('from','').lower() or \
+                               'user' in prev_turn.get('from','').lower()
+
+                if is_current_assistant and is_prev_user:
+                    assistant_reply = current_turn.get('value')
+                    last_user_prompt = prev_turn.get('value')
+                    break
+            
+            if not last_user_prompt or not assistant_reply:
+                # logger.warning(f"Skipping item {source_item_id} in {dataset_config.name}: Could not find valid user-assistant pair at the end.")
+                continue
+
+            record_id = generate_record_id(
+                source_dataset_name=dataset_config.name,
+                source_specific_id=str(source_item_id) # Ensure it's a string
+            )
+            
+            yield Record(
+                id=record_id,
+                source_dataset_name=dataset_config.name,
+                prompt=str(last_user_prompt),
+                response=str(assistant_reply),
+                meta=Metadata(
+                    prompt_type="human", # Assuming ShareGPT user prompts are human
+                    original_id=str(source_item_id)
+                )
+            )
+        except Exception as e:
+            logger.error(f"Error processing item {i} in {dataset_config.name}: {e}. Item: {str(item)[:200]}")
+            continue
+```
+
+---
+**`dolphin-lit-rm/dolphin-lit-rm/ingestion/standalone.py`**
+---
+```python
+from typing import List, Dict, Any, Iterator
+from datasets import Dataset
+from loguru import logger
+
+from dolphin_lit_rm.utils.schema_def import Record, Metadata, generate_record_id
+from dolphin_lit_rm.core_configs import DatasetEntryConfig
+from dolphin_lit_rm.utils.text_utils import clean_text
+
+def process_standalone_dataset(
+    dataset_config: DatasetEntryConfig,
+    raw_dataset: Dataset, # Loaded by file_io.get_hf_dataset
+    tokenizer_name: str
+) -> Iterator[Record]:
+    """
+    Processes datasets of standalone short pieces (Type B).
+    Each item in raw_dataset is treated as a 'response'.
+    """
+    logger.info(f"Processing standalone dataset: {dataset_config.name}")
+    
+    # Determine the text column. For 'text' format, it's usually 'text'.
+    # For CSV/JSONL, it might be specified in hf_dataset_config.
+    text_column = dataset_config.hf_dataset_config.get("text_column", "text") if dataset_config.hf_dataset_config else "text"
+    id_column = dataset_config.hf_dataset_config.get("id_column", None) if dataset_config.hf_dataset_config else None
+
+
+    for i, item in enumerate(raw_dataset):
+        try:
+            response_text = item.get(text_column)
+            if not response_text or not isinstance(response_text, str):
+                logger.warning(f"Skipping item {i} in {dataset_config.name}: Empty or invalid text in column '{text_column}'.")
+                continue
+            
+            response_text = clean_text(response_text)
+            if not response_text:
+                logger.warning(f"Skipping item {i} in {dataset_config.name}: Text became empty after cleaning.")
+                continue
+
+            source_item_id = None
+            if id_column and id_column in item:
+                source_item_id = str(item[id_column])
+            else: # Fallback if no ID column
+                source_item_id = f"item_{i}"
+
+            record_id = generate_record_id(
+                source_dataset_name=dataset_config.name,
+                source_specific_id=source_item_id,
+                content_for_hash=response_text if not source_item_id or source_item_id == f"item_{i}" else None
+            )
+
+            yield Record(
+                id=record_id,
+                source_dataset_name=dataset_config.name,
+                prompt=None,
+                response=response_text,
+                meta=Metadata(
+                    prompt_type=None, # Will be 'reconstructed' later if applicable
+                    original_id=source_item_id
+                )
+            )
+        except Exception as e:
+            logger.error(f"Error processing item {i} in {dataset_config.name}: {e}. Item: {str(item)[:200]}")
+            continue
+```
+
+---
+**`dolphin-lit-rm/dolphin-lit-rm/ingestion/longform.py`**
+---
+```python
+from typing import List, Dict, Any, Iterator
+from pathlib import Path
+from datasets import Dataset
+from loguru import logger
+
+from dolphin_lit_rm.utils.schema_def import Record, Metadata, generate_record_id
+from dolphin_lit_rm.core_configs import DatasetEntryConfig
+from dolphin_lit_rm.utils.text_utils import clean_text
+
+def process_longform_dataset_from_files(
+    dataset_config: DatasetEntryConfig,
+    # raw_dataset: Dataset, # For 'text_dir', raw_dataset is not pre-loaded by get_hf_dataset
+    tokenizer_name: str
+) -> Iterator[Record]:
+    """
+    Processes long-form documents (Type C) from a directory of text files.
+    Each file is treated as a single document to be segmented later.
+    Simplified: Assumes plain text files.
+    """
+    logger.info(f"Processing long-form dataset (text_dir): {dataset_config.name}")
+    
+    source_dir = Path(dataset_config.path_or_hf_id)
+    if not source_dir.is_dir():
+        logger.error(f"Source path for longform dataset {dataset_config.name} is not a directory: {source_dir}")
+        return
+
+    file_paths = list(source_dir.glob("*.txt")) # Simple glob for .txt files
+    
+    # Handle max_items for files
+    if dataset_config.max_items:
+        num_items = 0
+        if isinstance(dataset_config.max_items, str) and "%" in dataset_config.max_items:
+            percentage = int(dataset_config.max_items.replace("%", ""))
+            num_items = int(len(file_paths) * (percentage / 100))
+        elif isinstance(dataset_config.max_items, int):
+            num_items = dataset_config.max_items
+        
+        if num_items > 0:
+            file_paths = file_paths[:num_items]
+            logger.info(f"Processing up to {len(file_paths)} files from {dataset_config.name} due to max_items={dataset_config.max_items}")
+
+
+    for i, file_path in enumerate(file_paths):
+        try:
+            with file_path.open("r", encoding="utf-8") as f:
+                content = f.read()
+            
+            cleaned_content = clean_text(content)
+            if not cleaned_content:
+                logger.warning(f"Skipping file {file_path.name} in {dataset_config.name}: Content empty after cleaning.")
+                continue
+
+            # For Type C, the original_id is the file name (or relative path)
+            source_file_id = file_path.name 
+
+            record_id = generate_record_id(
+                source_dataset_name=dataset_config.name,
+                source_specific_id=source_file_id
+            )
+
+            yield Record(
+                id=record_id, # This ID is for the whole document; segmentation will create new IDs for chunks
+                source_dataset_name=dataset_config.name,
+                prompt=None, # Long-form docs don't have prompts initially
+                response=cleaned_content, # Entire document content
+                meta=Metadata(
+                    prompt_type=None,
+                    source_path=str(file_path.resolve()),
+                    original_id=source_file_id
+                ),
+                # Mark for segmentation
+                pipeline_internal_status=f"type_C_needs_segmentation"
+            )
+        except Exception as e:
+            logger.error(f"Error processing file {file_path.name} in {dataset_config.name}: {e}")
+            continue
+
+def process_longform_dataset_from_hf(
+    dataset_config: DatasetEntryConfig,
+    raw_dataset: Dataset, # Loaded by file_io.get_hf_dataset
+    tokenizer_name: str
+) -> Iterator[Record]:
+    """
+    Processes long-form documents (Type C) from a Hugging Face dataset.
+    Each item in raw_dataset is treated as a document.
+    """
+    logger.info(f"Processing long-form HF dataset: {dataset_config.name}")
+    
+    text_column = dataset_config.hf_dataset_config.get("text_column", "text") if dataset_config.hf_dataset_config else "text"
+    id_column = dataset_config.hf_dataset_config.get("id_column", None) if dataset_config.hf_dataset_config else None
+
+    for i, item in enumerate(raw_dataset):
+        try:
+            content = item.get(text_column)
+            if not content or not isinstance(content, str):
+                logger.warning(f"Skipping item {i} in {dataset_config.name}: Empty or invalid text in column '{text_column}'.")
+                continue
+            
+            cleaned_content = clean_text(content)
+            if not cleaned_content:
+                logger.warning(f"Skipping item {i} in {dataset_config.name}: Text became empty after cleaning.")
+                continue
+
+            source_item_id = None
+            if id_column and id_column in item:
+                source_item_id = str(item[id_column])
+            else:
+                source_item_id = f"item_{i}"
+            
+            record_id = generate_record_id(
+                source_dataset_name=dataset_config.name,
+                source_specific_id=source_item_id
+            )
+
+            yield Record(
+                id=record_id,
+                source_dataset_name=dataset_config.name,
+                prompt=None,
+                response=cleaned_content,
+                meta=Metadata(
+                    prompt_type=None,
+                    original_id=source_item_id
+                ),
+                pipeline_internal_status=f"type_C_needs_segmentation"
+            )
+        except Exception as e:
+            logger.error(f"Error processing item {i} in {dataset_config.name}: {e}. Item: {str(item)[:200]}")
+            continue
+```
+
+---
+**`dolphin-lit-rm/dolphin-lit-rm/ingestion/main.py`** (New file to orchestrate ingestion)
+---
+```python
+from pathlib import Path
+from typing import List, Iterator
+from loguru import logger
+from tqdm import tqdm
+
+from dolphin_lit_rm.core_configs import AppConfig, DatasetEntryConfig
+from dolphin_lit_rm.utils.schema_def import Record
+from dolphin_lit_rm.utils import file_io, state_manager
+from dolphin_lit_rm.ingestion import sharegpt, standalone, longform
+
+def ingest_dataset(
+    dataset_config: DatasetEntryConfig,
+    app_config: AppConfig,
+    # state_manager_instance: state_manager.StateManager # Passed via app_config
+) -> List[Record]:
+    """Ingests a single dataset based on its configuration."""
+    
+    # Resumability: For ingestion, it's tricky if source files change.
+    # A simple check could be if the output raw file already exists and skip.
+    # However, if max_items changes, we might want to re-ingest.
+    # For now, let's assume if raw output exists, we skip, unless forced.
+    # More robust resumability is handled by downstream stages using record IDs.
+
+    output_dir = Path(app_config.run.artifacts_dir) / "raw"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_file = output_dir / f"{dataset_config.name}.parquet" # Using parquet for HF compatibility
+
+    # Basic skip if output exists (can be made more sophisticated)
+    # if output_file.exists() and not app_config.force_stage_rerun.get("ingest"): # Assuming a force flag
+    #     logger.info(f"Raw file {output_file} already exists for dataset {dataset_config.name}. Skipping ingestion.")
+    #     # To use this, we'd need to load it and return, or signal to skip.
+    #     # For simplicity, we'll re-process and overwrite for now, or rely on downstream stages for ID-based skipping.
+    #     # A true "skip" would mean this function returns an empty list and the main loop loads existing.
+
+    records_buffer = []
+    
+    try:
+        if dataset_config.format == "text_dir": # Special handling for directory of text files
+            if dataset_config.type != "C":
+                logger.warning(f"Dataset {dataset_config.name} is format 'text_dir' but not Type C. Treating as Type C.")
+            
+            record_iterator = longform.process_longform_dataset_from_files(
+                dataset_config, app_config.run.tokenizer_name
+            )
+        else: # All other formats loadable by datasets.load_dataset
+            raw_hf_dataset = file_io.get_hf_dataset(
+                dataset_config.path_or_hf_id,
+                dataset_config.format,
+                vars(dataset_config), # Pass the whole dataset_config entry
+                dataset_config.max_items
+            )
+            if not raw_hf_dataset or len(raw_hf_dataset) == 0:
+                logger.warning(f"No data loaded for dataset {dataset_config.name}. Skipping.")
+                return []
+
+            if dataset_config.type == "A": # Prompt+Assistant
+                record_iterator = sharegpt.process_sharegpt_dataset(
+                    dataset_config, raw_hf_dataset, app_config.run.tokenizer_name
+                )
+            elif dataset_config.type == "B": # Standalone
+                record_iterator = standalone.process_standalone_dataset(
+                    dataset_config, raw_hf_dataset, app_config.run.tokenizer_name
+                )
+            elif dataset_config.type == "C": # Long-form (from HF dataset)
+                 record_iterator = longform.process_longform_dataset_from_hf(
+                    dataset_config, raw_hf_dataset, app_config.run.tokenizer_name
+                )
+            else:
+                logger.error(f"Unknown dataset type '{dataset_config.type}' for {dataset_config.name}")
+                return []
+        
+        for record in tqdm(record_iterator, desc=f"Ingesting {dataset_config.name}", unit="records"):
+            records_buffer.append(record.model_dump()) # Convert Pydantic model to dict for saving
+
+    except Exception as e:
+        logger.error(f"Failed to ingest dataset {dataset_config.name}: {e}", exc_info=True)
+        return [] # Return empty list on failure for this dataset
+
+    if records_buffer:
+        file_io.save_records_to_arrow(records_buffer, output_file)
+        logger.info(f"Successfully ingested {len(records_buffer)} records from {dataset_config.name} to {output_file}")
+    else:
+        logger.warning(f"No records were produced for dataset {dataset_config.name}.")
+        # Save an empty file to signify completion if necessary
+        file_io.save_records_to_arrow([], output_file)
+
+
+    # This function now writes its own output. The CLI will call this per dataset.
+    # It doesn't return records anymore to save memory for large ingestions.
+    # Downstream stages will load from the saved files.
+
+def run_ingestion_stage(app_config: AppConfig):
+    logger.info("--- Starting Ingestion Stage ---")
+    raw_artifacts_dir = Path(app_config.run.artifacts_dir) / "raw"
+    raw_artifacts_dir.mkdir(parents=True, exist_ok=True)
+
+    for ds_config in app_config.datasets.datasets:
+        output_file = raw_artifacts_dir / f"{ds_config.name}.parquet"
+        # Simple resumability: if output file exists, skip this dataset's ingestion.
+        # Add a force flag in AppConfig if needed to override this.
+        if output_file.exists() and not getattr(app_config, "force_ingest", False):
+             logger.info(f"Raw artifact for {ds_config.name} already exists at {output_file}. Skipping ingestion.")
+             continue
+        
+        logger.info(f"Starting ingestion for dataset: {ds_config.name}")
+        ingest_dataset(ds_config, app_config) # This function now saves its own output
+
+    logger.info("--- Ingestion Stage Completed ---")
+
+```
+
+---
+**`dolphin-lit-rm/dolphin-lit-rm/preprocessing/filter.py`**
+---
+```python
+import re
+from pathlib import Path
+from typing import List, Dict, Any, Optional
+from datasets import Dataset, Features, Value
+from loguru import logger
+from tqdm import tqdm
+import fasttext # Requires model: lid.176.bin
+import lmdb
+
+from dolphin_lit_rm.core_configs import AppConfig, FilterConfig
+from dolphin_lit_rm.utils import text_utils, file_io, state_manager
+from dolphin_lit_rm.utils.schema_def import Record
+
+# Load fastText language model (ensure model is downloaded)
+# fasttext.FastText.eprint = lambda x: None # Suppress warnings if any
+try:
+    # You might need to specify the path to the model if it's not in a standard location
+    # For example: fasttext_model_path = Path.home() / ".fasttext_models" / "lid.176.bin"
+    # if not fasttext_model_path.exists():
+    #    logger.error(f"FastText model not found at {fasttext_model_path}. Please download it.")
+    #    raise FileNotFoundError("FastText model lid.176.bin not found.")
+    # lang_model = fasttext.load_model(str(fasttext_model_path))
+    lang_model = fasttext.load_model('lid.176.bin') # Assumes it's findable by fasttext
+except Exception as e:
+    logger.error(f"Failed to load fastText language model: {e}. Language filtering will be disabled.")
+    lang_model = None
+
+
+class Deduplicator:
+    def __init__(self, db_path: Path):
+        self.db_path = db_path
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Initializing deduplication LMDB at {self.db_path}")
+        # Increased map_size for potentially large number of hashes
+        self.env = lmdb.open(str(self.db_path), map_size=1024**4) # 1 TB, adjust as needed
+
+    def is_duplicate(self, text_hash: str) -> bool:
+        with self.env.begin() as txn:
+            return txn.get(text_hash.encode()) is not None
+
+    def add_hash(self, text_hash: str) -> None:
+        with self.env.begin(write=True) as txn:
+            txn.put(text_hash.encode(), b'1') # Value doesn't matter, just existence
+
+    def close(self):
+        self.env.close()
+        logger.info(f"Closed deduplication LMDB at {self.db_path}")
+
+
+def apply_filters_to_record(
+    record_dict: Dict[str, Any], # A dict, not Pydantic model here
+    filter_config: FilterConfig,
+    tokenizer_name: str,
+    deduplicator: Optional[Deduplicator] = None,
+    lang_id_model: Optional[Any] = lang_model # Pass the loaded model
+) -> Optional[Dict[str, Any]]:
+    """Applies filters to a single record dictionary. Returns None if record is dropped."""
+    response_text = record_dict.get("response", "")
+    if not response_text:
+        return None # Drop if no response
+
+    # 1. Length filter (tokens)
+    num_tokens = text_utils.count_tokens(response_text, tokenizer_name)
+    if not (filter_config.min_response_tokens <= num_tokens <= filter_config.max_response_tokens):
+        # logger.debug(f"Record {record_dict.get('id')} dropped: token count {num_tokens} out of range.")
+        return None
+
+    # 2. Language ID filter
+    if lang_id_model and filter_config.lang_id_threshold > 0:
+        # fastText expects clean text, newlines can affect prediction
+        cleaned_for_langid = response_text.replace("\n", " ")
+        predictions = lang_id_model.predict(cleaned_for_langid, k=1)
+        lang, prob = predictions[0][0].replace("__label__", ""), predictions[1][0]
+        
+        # Assuming English for now, this could be configurable
+        if not (lang == "en" and prob >= filter_config.lang_id_threshold):
+            # logger.debug(f"Record {record_dict.get('id')} dropped: lang {lang} ({prob:.2f}) not meeting threshold.")
+            record_dict["meta"]["lang"] = lang # Store detected lang even if dropped for analysis
+            return None
+        record_dict["meta"]["lang"] = "en" # Store detected lang
+
+    # 3. Blacklist regexes
+    if filter_config.blacklist_regex_patterns:
+        for pattern in filter_config.blacklist_regex_patterns:
+            if re.search(pattern, response_text, re.IGNORECASE): # Added IGNORECASE
+                # logger.debug(f"Record {record_dict.get('id')} dropped: matched blacklist pattern '{pattern}'.")
+                return None
+    
+    # 4. Deduplication (on sha1 of response)
+    if deduplicator:
+        # Using sha1 for deduplication hash as it's faster and sufficient for this purpose
+        text_hash = hashlib.sha1(response_text.encode('utf-8')).hexdigest()
+        if deduplicator.is_duplicate(text_hash):
+            # logger.debug(f"Record {record_dict.get('id')} dropped: duplicate content (hash {text_hash}).")
+            return None
+        deduplicator.add_hash(text_hash) # Add after check, only for non-duplicates
+
+    return record_dict
+
+
+def run_filter_stage(app_config: AppConfig):
+    logger.info("--- Starting Pre-filtering Stage ---")
+    filter_config = app_config.run.preprocessing.filter
+    tokenizer_name = app_config.run.tokenizer_name
+    
+    input_dir = Path(app_config.run.artifacts_dir) / "raw"
+    output_dir = Path(app_config.run.artifacts_dir) / "filtered"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Initialize deduplicator once for the entire stage
+    dedup_db_path = Path(app_config.run.state_dir) / filter_config.deduplication_cache_db
+    deduplicator = Deduplicator(dedup_db_path)
+    
+    processed_count_total = 0
+    retained_count_total = 0
+
+    for dataset_file in input_dir.glob("*.parquet"):
+        dataset_name = dataset_file.stem
+        logger.info(f"Filtering dataset: {dataset_name}")
+        
+        output_file = output_dir / f"{dataset_name}.parquet"
+        if output_file.exists() and not getattr(app_config, "force_filter", False):
+            logger.info(f"Filtered artifact for {dataset_name} already exists. Skipping.")
+            # Need to load and count if we want accurate totals for resumed runs
+            # For now, just skip processing.
+            try:
+                # Still load hashes into deduplicator if resuming and file exists
+                # This is tricky because we don't want to re-add if already processed in a *previous* run
+                # The LMDB is persistent across runs.
+                # A simpler approach: if resuming, the LMDB is already populated.
+                # If it's a new run, it starts empty.
+                # So, no special handling needed here for deduplicator on resume.
+                existing_data = file_io.load_records_from_arrow(output_file)
+                processed_count_total += len(existing_data) # Assume all were processed to get here
+                retained_count_total += len(existing_data)
+            except Exception:
+                pass # If loading fails, it will be reprocessed
+            continue
+
+        raw_dataset = file_io.load_records_from_arrow(dataset_file)
+        if not raw_dataset or len(raw_dataset) == 0:
+            logger.warning(f"No records found in raw file {dataset_file} for {dataset_name}. Skipping.")
+            file_io.save_records_to_arrow([], output_file) # Save empty
+            continue
+        
+        processed_count_total += len(raw_dataset)
+        
+        # Using .map for Hugging Face Datasets is efficient
+        # Need to ensure the function can be pickled or use with_indices
+        # For simplicity and control, iterate and build a list.
+        # For very large datasets, consider HF .map() with a more complex setup or Spark/Dask.
+        
+        filtered_records = []
+        # Convert HF Dataset to list of dicts for processing
+        # This loads all into memory for this dataset. For extremely large individual files,
+        # stream processing would be better.
+        raw_records_list = raw_dataset.to_list()
+
+        for record_dict in tqdm(raw_records_list, desc=f"Filtering {dataset_name}", unit="records"):
+            # Ensure 'meta' exists and is a dict
+            if 'meta' not in record_dict or record_dict['meta'] is None:
+                record_dict['meta'] = {}
+            
+            # If 'lang' is already set (e.g. by ingester), respect it or re-evaluate
+            # For now, filter.py will attempt to set/overwrite it.
+
+            processed_record = apply_filters_to_record(
+                record_dict, filter_config, tokenizer_name, deduplicator, lang_model
+            )
+            if processed_record:
+                filtered_records.append(processed_record)
+        
+        if filtered_records:
+            file_io.save_records_to_arrow(filtered_records, output_file)
+            logger.info(f"Finished filtering {dataset_name}: {len(filtered_records)} records retained out of {len(raw_dataset)}.")
+        else:
+            logger.warning(f"No records retained for {dataset_name} after filtering.")
+            file_io.save_records_to_arrow([], output_file) # Save empty
+            
+        retained_count_total += len(filtered_records)
+
+    deduplicator.close()
+    logger.info(f"--- Pre-filtering Stage Completed ---")
+    logger.info(f"Total records processed: {processed_count_total}, Total records retained: {retained_count_total}")
+
+```
+(Need to import `hashlib` in `filter.py`)
+
+---
+**`dolphin-lit-rm/dolphin-lit-rm/preprocessing/segment.py`**
+---
+```python
+import spacy
+from pathlib import Path
+from typing import List, Dict, Any, Iterator
+from datasets import Dataset
+from loguru import logger
+from tqdm import tqdm
+
+from dolphin_lit_rm.core_configs import AppConfig, SegmentationConfig
+from dolphin_lit_rm.utils import text_utils, file_io, state_manager
+from dolphin_lit_rm.utils.schema_def import Record, Metadata, generate_record_id
+
+# Load Spacy model
+# spacy.prefer_gpu() # Uncomment if GPU is available and desired
+try:
+    nlp = spacy.load("en_core_web_sm", disable=["parser", "ner"]) # Only need sentencizer
+    nlp.max_length = 2000000 # Increase if very long documents are expected as single strings
+except OSError:
+    logger.error("Spacy model 'en_core_web_sm' not found. Please run: python -m spacy download en_core_web_sm")
+    nlp = None
+
+
+def segment_document(
+    doc_record_dict: Dict[str, Any], # A dict from the dataset
+    segment_config: SegmentationConfig,
+    tokenizer_name: str
+) -> List[Dict[str, Any]]:
+    """Segments a single document (passed as a record dict) into smaller chunks."""
+    if not nlp:
+        logger.error("Spacy model not loaded. Segmentation cannot proceed.")
+        # Return the original document as a single chunk if spacy fails
+        # This might exceed token limits downstream, but prevents data loss here.
+        return [doc_record_dict] 
+
+    text = doc_record_dict.get("response", "")
+    if not text:
+        return []
+
+    doc = nlp(text)
+    sentences = list(doc.sents)
+    
+    chunks = []
+    current_chunk_sents = []
+    current_chunk_tokens = 0
+    start_char_offset = 0
+
+    for i, sent in enumerate(sentences):
+        sent_text = sent.text.strip()
+        if not sent_text:
+            continue
+        
+        sent_tokens = text_utils.count_tokens(sent_text, tokenizer_name)
+
+        if current_chunk_tokens + sent_tokens > segment_config.max_chunk_tokens and current_chunk_sents:
+            # Finalize current chunk
+            chunk_text = " ".join(s.text.strip() for s in current_chunk_sents)
+            end_char_offset = current_chunk_sents[-1].end_char
+            
+            # Create new record for the chunk
+            chunk_id = generate_record_id(
+                source_dataset_name=doc_record_dict["source_dataset_name"],
+                source_specific_id=doc_record_dict["meta"].get("original_id", doc_record_dict["id"]), # Use original doc ID as base
+                segment_index=len(chunks) # Simple index for this document
+            )
+            new_meta = doc_record_dict["meta"].copy() # Shallow copy meta
+            new_meta["char_span"] = [start_char_offset, end_char_offset]
+            
+            chunk_record = {
+                "id": chunk_id,
+                "source_dataset_name": doc_record_dict["source_dataset_name"],
+                "prompt": None, # Chunks of long-form docs don't have prompts yet
+                "response": chunk_text,
+                "meta": new_meta,
+                "classification": {}, # Will be filled later
+                "scores": {} # Will be filled later
+            }
+            chunks.append(chunk_record)
+            
+            # Start new chunk, potentially with overlap
+            if segment_config.sentence_overlap_count > 0 and len(current_chunk_sents) > segment_config.sentence_overlap_count:
+                # Take last N sentences for overlap
+                overlap_sents = current_chunk_sents[-segment_config.sentence_overlap_count:]
+                current_chunk_sents = list(overlap_sents) # Make a copy
+                current_chunk_tokens = sum(text_utils.count_tokens(s.text.strip(), tokenizer_name) for s in current_chunk_sents)
+                start_char_offset = current_chunk_sents[0].start_char
+            else:
+                current_chunk_sents = []
+                current_chunk_tokens = 0
+                start_char_offset = sent.start_char # Start of the current sentence that didn't fit
+
+        # Add current sentence to the current_chunk_sents (even if it started a new chunk)
+        if not current_chunk_sents: # If it's the first sentence of a new chunk
+            start_char_offset = sent.start_char
+        current_chunk_sents.append(sent)
+        current_chunk_tokens += sent_tokens
+
+
+    # Add the last remaining chunk
+    if current_chunk_sents:
+        chunk_text = " ".join(s.text.strip() for s in current_chunk_sents)
+        end_char_offset = current_chunk_sents[-1].end_char
+        chunk_id = generate_record_id(
+            source_dataset_name=doc_record_dict["source_dataset_name"],
+            source_specific_id=doc_record_dict["meta"].get("original_id", doc_record_dict["id"]),
+            segment_index=len(chunks)
+        )
+        new_meta = doc_record_dict["meta"].copy()
+        new_meta["char_span"] = [start_char_offset, end_char_offset]
+        chunk_record = {
+            "id": chunk_id,
+            "source_dataset_name": doc_record_dict["source_dataset_name"],
+            "prompt": None,
+            "response": chunk_text,
+            "meta": new_meta,
+            "classification": {},
+            "scores": {}
+        }
+        chunks.append(chunk_record)
+        
+    return chunks
+
+
+def run_segmentation_stage(app_config: AppConfig):
+    logger.info("--- Starting Segmentation Stage ---")
+    if not nlp:
+        logger.error("Spacy model not available. Skipping segmentation stage.")
+        # Copy filtered files to segmented directory to allow pipeline to continue if desired
+        input_dir_seg = Path(app_config.run.artifacts_dir) / "filtered"
+        output_dir_seg = Path(app_config.run.artifacts_dir) / "segmented"
+        output_dir_seg.mkdir(parents=True, exist_ok=True)
+        for dataset_file in input_dir_seg.glob("*.parquet"):
+            target_file = output_dir_seg / dataset_file.name
+            if not target_file.exists(): # Avoid error if CLI is re-run and file exists
+                 import shutil
+                 shutil.copy(dataset_file, target_file)
+            logger.warning(f"Copied {dataset_file.name} to segmented dir as spacy is unavailable.")
+        return
+
+    segment_config = app_config.run.preprocessing.segmentation
+    tokenizer_name = app_config.run.tokenizer_name
+    
+    input_dir = Path(app_config.run.artifacts_dir) / "filtered"
+    output_dir = Path(app_config.run.artifacts_dir) / "segmented"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    for dataset_file in input_dir.glob("*.parquet"):
+        dataset_name = dataset_file.stem
+        logger.info(f"Segmenting dataset: {dataset_name}")
+
+        output_file = output_dir / f"{dataset_name}.parquet"
+        if output_file.exists() and not getattr(app_config, "force_segment", False):
+            logger.info(f"Segmented artifact for {dataset_name} already exists. Skipping.")
+            continue
+
+        filtered_dataset = file_io.load_records_from_arrow(dataset_file)
+        if not filtered_dataset or len(filtered_dataset) == 0:
+            logger.warning(f"No records found in filtered file {dataset_file} for {dataset_name}. Skipping segmentation.")
+            file_io.save_records_to_arrow([], output_file) # Save empty
+            continue
+        
+        all_segmented_records = []
+        # Convert to list of dicts for processing
+        records_to_process = filtered_dataset.to_list()
+
+        for record_dict in tqdm(records_to_process, desc=f"Segmenting {dataset_name}", unit="docs"):
+            # Check if this record was marked for segmentation by ingestion (Type C)
+            # Or if its type is 'C' based on original dataset config (more robust)
+            # For now, assume all records in 'filtered' might need segmentation if long enough.
+            # A more precise way: check record_dict['pipeline_internal_status'] or original type.
+            
+            # Simple heuristic: if it's much larger than max_chunk_tokens, it's probably Type C or long Type B
+            # A dedicated 'type' field in the Record schema propagated from DatasetEntryConfig would be better.
+            # For now, let's assume if 'pipeline_internal_status' has "needs_segmentation" or if it's simply too long.
+            
+            is_long_doc = record_dict.get("pipeline_internal_status") == "type_C_needs_segmentation"
+            # Also segment if it's just too long, regardless of original type
+            # (e.g. a very long "standalone" piece)
+            if not is_long_doc:
+                current_tokens = text_utils.count_tokens(record_dict.get("response",""), tokenizer_name)
+                if current_tokens > segment_config.max_chunk_tokens * 1.1: # Add a small buffer
+                    is_long_doc = True # Treat as needing segmentation
+
+            if is_long_doc:
+                # Ensure 'meta' is a dict
+                if 'meta' not in record_dict or not isinstance(record_dict['meta'], dict):
+                    record_dict['meta'] = {}
+
+                chunks = segment_document(record_dict, segment_config, tokenizer_name)
+                all_segmented_records.extend(chunks)
+            else:
+                # Pass through records that don't need segmentation
+                # Ensure schema consistency (classification, scores dicts)
+                if "classification" not in record_dict or record_dict["classification"] is None:
+                    record_dict["classification"] = {}
+                if "scores" not in record_dict or record_dict["scores"] is None:
+                    record_dict["scores"] = {}
+                all_segmented_records.append(record_dict)
+        
+        if all_segmented_records:
+            file_io.save_records_to_arrow(all_segmented_records, output_file)
+            logger.info(f"Finished segmenting {dataset_name}: {len(all_segmented_records)} total records/chunks produced.")
+        else:
+            logger.warning(f"No records/chunks produced for {dataset_name} after segmentation attempt.")
+            file_io.save_records_to_arrow([], output_file) # Save empty
+
+    logger.info("--- Segmentation Stage Completed ---")
+
+```
+
+---
+**`dolphin-lit-rm/dolphin-lit-rm/preprocessing/prompt_reconstruct.py`**
+---
+```python
+from pathlib import Path
+from typing import List, Dict, Any, Optional
+from datasets import Dataset
+from loguru import logger
+from tqdm import tqdm
+from jinja2 import Template
+
+from dolphin_lit_rm.core_configs import AppConfig, PromptReconstructionConfig
+from dolphin_lit_rm.utils import text_utils, file_io, state_manager, llm_api_client
+from dolphin_lit_rm.utils.schema_def import Record
+
+# Load prompt template
+PROMPT_RECONSTRUCTION_TEMPLATE_PATH = Path(__file__).parent.parent / "config" / "prompts" / "prompt_reconstruction.jinja"
+try:
+    with PROMPT_RECONSTRUCTION_TEMPLATE_PATH.open("r") as f:
+        PROMPT_TEMPLATE = Template(f.read())
+except FileNotFoundError:
+    logger.error(f"Prompt reconstruction template not found at {PROMPT_RECONSTRUCTION_TEMPLATE_PATH}")
+    PROMPT_TEMPLATE = None
+
+
+def reconstruct_prompt_for_record(
+    record_dict: Dict[str, Any],
+    pr_config: PromptReconstructionConfig,
+    llm_client: llm_api_client.LLMAPIClient,
+    tokenizer_name: str
+) -> Optional[str]:
+    """Generates a prompt for a single record if needed and conditions are met."""
+    if not PROMPT_TEMPLATE:
+        return None
+
+    response_text = record_dict.get("response")
+    if record_dict.get("prompt") or not response_text: # Skip if prompt exists or no response
+        return record_dict.get("prompt") # Return existing prompt
+
+    # Gatekeeper: len(response) <= MAX_PROMPT_REC_TOK
+    response_tokens = text_utils.count_tokens(response_text, tokenizer_name)
+    if response_tokens > pr_config.max_response_tokens_for_reconstruction:
+        # logger.debug(f"Skipping prompt reconstruction for record {record_dict.get('id')}: response too long ({response_tokens} tokens).")
+        return None
+
+    try:
+        api_prompt = PROMPT_TEMPLATE.render(response=response_text)
+        # Use chat messages format for newer models
+        messages = [{"role": "user", "content": api_prompt}]
+        
+        api_response = llm_client.make_request(
+            messages=messages,
+            # model_name will be picked from llm_client's default or pr_config override
+            temperature=0.1, # Slightly creative but mostly deterministic
+            max_tokens=pr_config.reconstructed_prompt_max_chars // 2, # Estimate tokens from chars
+        )
+        
+        reconstructed_prompt = llm_client.get_completion(api_response, is_chat=True)
+
+        if reconstructed_prompt:
+            # Post-process: strip, truncate
+            reconstructed_prompt = reconstructed_prompt.strip()
+            if len(reconstructed_prompt) > pr_config.reconstructed_prompt_max_chars:
+                reconstructed_prompt = reconstructed_prompt[:pr_config.reconstructed_prompt_max_chars].rsplit(' ', 1)[0] + "..."
+            return reconstructed_prompt
+        else:
+            logger.warning(f"Prompt reconstruction failed for record {record_dict.get('id')}: LLM returned empty response.")
+            return None
+            
+    except Exception as e:
+        logger.error(f"Error during prompt reconstruction for record {record_dict.get('id')}: {e}")
+        return None
+
+
+def run_prompt_reconstruction_stage(app_config: AppConfig):
+    logger.info("--- Starting Prompt Reconstruction Stage ---")
+    if not PROMPT_TEMPLATE:
+        logger.error("Prompt reconstruction template not loaded. Skipping stage.")
+        # Copy classified files to reconstructed directory
+        input_dir_pr = Path(app_config.run.artifacts_dir) / "normalized" # Input from normalized
+        output_dir_pr = Path(app_config.run.artifacts_dir) / "reconstructed"
+        output_dir_pr.mkdir(parents=True, exist_ok=True)
+        for dataset_file in input_dir_pr.glob("*.parquet"):
+            target_file = output_dir_pr / dataset_file.name
+            if not target_file.exists():
+                 import shutil
+                 shutil.copy(dataset_file, target_file)
+            logger.warning(f"Copied {dataset_file.name} to reconstructed dir as template is missing.")
+        return
+
+    pr_config = app_config.run.preprocessing.prompt_reconstruction
+    tokenizer_name = app_config.run.tokenizer_name
+    
+    # Get LLM settings, merging defaults with stage-specific overrides
+    llm_settings_for_stage = app_config.run.get_llm_settings_for_stage("prompt_reconstruction")
+    if not llm_settings_for_stage.api_base_url or not llm_settings_for_stage.model_name:
+        logger.error("API base URL or model name for prompt reconstruction is not configured. Skipping stage.")
+        # Copy files like above
+        input_dir_pr = Path(app_config.run.artifacts_dir) / "normalized"
+        output_dir_pr = Path(app_config.run.artifacts_dir) / "reconstructed"
+        output_dir_pr.mkdir(parents=True, exist_ok=True)
+        for dataset_file in input_dir_pr.glob("*.parquet"): # Ensure this matches actual input dir
+            target_file = output_dir_pr / dataset_file.name
+            if not target_file.exists():
+                 import shutil
+                 shutil.copy(dataset_file, target_file)
+            logger.warning(f"Copied {dataset_file.name} to reconstructed dir as LLM config is missing.")
+        return
+
+    llm_client_instance = llm_api_client.LLMAPIClient(
+        api_base_url=llm_settings_for_stage.api_base_url,
+        api_key=llm_settings_for_stage.api_key,
+        default_model_name=llm_settings_for_stage.model_name,
+        timeout_seconds=llm_settings_for_stage.timeout_seconds or 60,
+        max_retries=llm_settings_for_stage.max_retries or 3
+    )
+    
+    input_dir = Path(app_config.run.artifacts_dir) / "normalized" # Input from normalized data
+    output_dir = Path(app_config.run.artifacts_dir) / "reconstructed"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # This stage operates on the single combined normalized file
+    # (or multiple if normalization outputs per original dataset, adjust glob then)
+    normalized_files = list(input_dir.glob("*.parquet"))
+    if not normalized_files:
+        logger.warning(f"No normalized files found in {input_dir}. Skipping prompt reconstruction.")
+        return
+
+    for dataset_file in normalized_files: # Should typically be one combined file
+        dataset_name = dataset_file.stem # e.g., "all_sources_normalized"
+        logger.info(f"Reconstructing prompts for: {dataset_name}")
+        
+        output_file = output_dir / f"{dataset_name}_reconstructed.parquet" # Add suffix
+        if output_file.exists() and not getattr(app_config, "force_prompt_reconstruction", False):
+            logger.info(f"Reconstructed artifact for {dataset_name} already exists. Skipping.")
+            continue
+
+        current_dataset = file_io.load_records_from_arrow(dataset_file)
+        if not current_dataset or len(current_dataset) == 0:
+            logger.warning(f"No records in {dataset_file}. Skipping.")
+            file_io.save_records_to_arrow([], output_file)
+            continue
+            
+        # State management for this stage (on the combined dataset)
+        stage_processed_ids = app_config.state_manager.get_processed_ids("prompt_reconstruction", dataset_name)
+        
+        updated_records = []
+        ids_processed_in_this_run = []
+
+        # Convert to list of dicts for processing
+        records_to_process = current_dataset.to_list()
+
+        for record_dict in tqdm(records_to_process, desc=f"Reconstructing prompts for {dataset_name}", unit="records"):
+            record_id = record_dict["id"]
+            if record_id in stage_processed_ids:
+                # If already processed (e.g. in a resumed run), just add it
+                # This assumes the content of the record_dict from file is what we want
+                updated_records.append(record_dict)
+                continue
+
+            # Ensure 'meta' is a dict
+            if 'meta' not in record_dict or record_dict['meta'] is None:
+                record_dict['meta'] = {}
+
+            reconstructed_prompt = reconstruct_prompt_for_record(
+                record_dict, pr_config, llm_client_instance, tokenizer_name
+            )
+            
+            if reconstructed_prompt:
+                record_dict["prompt"] = reconstructed_prompt
+                # Ensure meta is a dict before trying to update it
+                if not isinstance(record_dict.get("meta"), dict):
+                    record_dict["meta"] = {}
+                record_dict["meta"]["prompt_type"] = "reconstructed"
+            
+            updated_records.append(record_dict)
+            ids_processed_in_this_run.append(record_id)
+
+            # Batch add to state manager periodically to save on I/O
+            if len(ids_processed_in_this_run) >= 100: # Configurable batch size
+                app_config.state_manager.add_processed_ids_batch(ids_processed_in_this_run, "prompt_reconstruction", dataset_name)
+                ids_processed_in_this_run.clear()
+        
+        # Add any remaining processed IDs
+        if ids_processed_in_this_run:
+            app_config.state_manager.add_processed_ids_batch(ids_processed_in_this_run, "prompt_reconstruction", dataset_name)
+
+        if updated_records:
+            file_io.save_records_to_arrow(updated_records, output_file)
+            logger.info(f"Finished prompt reconstruction for {dataset_name}: {len(updated_records)} records processed/updated.")
+        else:
+            logger.warning(f"No records after prompt reconstruction for {dataset_name}.")
+            file_io.save_records_to_arrow([], output_file)
+
+    logger.info("--- Prompt Reconstruction Stage Completed ---")
+
+```
+
+---
+**`dolphin-lit-rm/dolphin-lit-rm/classification/classifier.py`**
+---
+```python
+import re
+from pathlib import Path
+from typing import List, Dict, Any, Optional, Tuple
+from datasets import Dataset
+from loguru import logger
+from tqdm import tqdm
+from jinja2 import Template
+
+from dolphin_lit_rm.core_configs import AppConfig, ClassificationConfig
+from dolphin_lit_rm.utils import text_utils, file_io, state_manager, llm_api_client
+from dolphin_lit_rm.utils.schema_def import Record, ClassificationLabels
+
+# Load classification prompt template
+CLASSIFICATION_TEMPLATE_PATH = Path(__file__).parent.parent / "config" / "prompts" / "classification.jinja"
+try:
+    with CLASSIFICATION_TEMPLATE_PATH.open("r") as f:
+        CLASSIFICATION_TEMPLATE = Template(f.read())
+except FileNotFoundError:
+    logger.error(f"Classification template not found at {CLASSIFICATION_TEMPLATE_PATH}")
+    CLASSIFICATION_TEMPLATE = None
+
+# Default genres if not specified in config (example)
+DEFAULT_TOP_LEVEL_GENRES = [
+    "fiction", "non-fiction", "news", "essay", "poetry", "dialogue", 
+    "technical writing", "marketing copy", "academic paper", "script/screenplay", 
+    "review", "biography", "historical text", "legal document", "other"
+]
+
+
+def classify_text_zero_shot(
+    text: str,
+    class_config: ClassificationConfig,
+    llm_client_instance: llm_api_client.LLMAPIClient
+) -> Tuple[Optional[str], Optional[str]]: # (top_genre, sub_genre)
+    """Classifies text using a zero-shot LLM approach."""
+    if not CLASSIFICATION_TEMPLATE:
+        return "unknown", None
+
+    # Determine genre list for the prompt
+    # This could come from class_config.genre_taxonomy_file or a default
+    top_genres_for_prompt = getattr(class_config, "top_level_genres_for_prompt", DEFAULT_TOP_LEVEL_GENRES)
+
+    try:
+        # Truncate text if too long for classification prompt context
+        # A few hundred tokens should be enough for genre.
+        # This limit should be configurable or based on model context.
+        MAX_TEXT_TOKENS_FOR_CLASSIFICATION = 512 
+        if text_utils.count_tokens(text, app_config.run.tokenizer_name) > MAX_TEXT_TOKENS_FOR_CLASSIFICATION:
+            # A simple head truncation for now
+            # TODO: A more sophisticated summarization or representative snippet selection might be better.
+            # For tiktoken, roughly 4 chars per token.
+            text_for_prompt = text[:MAX_TEXT_TOKENS_FOR_CLASSIFICATION * 4] 
+        else:
+            text_for_prompt = text
+
+        api_prompt = CLASSIFICATION_TEMPLATE.render(
+            response=text_for_prompt, 
+            top_level_genres=top_genres_for_prompt
+        )
+        messages = [{"role": "user", "content": api_prompt}]
+        
+        api_response = llm_client_instance.make_request(
+            messages=messages,
+            temperature=0.0, # Deterministic for classification
+            max_tokens=20  # Enough for "Primary Genre Category: <Category Name>"
+        )
+        
+        llm_output = llm_client_instance.get_completion(api_response, is_chat=True)
+
+        if llm_output:
+            # Parse the output. Example LLM output: "Primary Genre Category: Fiction"
+            # Or just "Fiction"
+            # Make parsing robust.
+            llm_output_lower = llm_output.lower()
+            
+            # Try to find a match from the provided list first for robustness
+            for genre in top_genres_for_prompt + ["unknown"]: # Add unknown to the check list
+                if genre.lower() in llm_output_lower:
+                    # TODO: Add confidence check if LLM provides it, or use regex with specific format.
+                    # For now, direct match is considered confident enough.
+                    # Sub-genre classification would be a second step or a more complex prompt.
+                    return genre.lower(), None # Return normalized genre
+
+            # If no direct match from list, use the LLM output if it's simple, else unknown
+            # This part is heuristic and might need refinement.
+            # E.g. if LLM says "This is clearly Fiction.", extract "Fiction".
+            # A simple fallback: if the output is short and seems like a label.
+            if len(llm_output.split()) <= 3: # Arbitrary short length
+                 # Basic sanitization: remove "Primary Genre Category:" prefix if present
+                cleaned_output = re.sub(r"(?i)primary genre category:\s*", "", llm_output).strip()
+                if cleaned_output.lower() in [g.lower() for g in top_genres_for_prompt]: # Check again after cleaning
+                    return cleaned_output.lower(), None
+
+            logger.warning(f"Classification output '{llm_output}' not directly parsable or not in known list. Defaulting to 'unknown'.")
+            return "unknown", None
+        else:
+            logger.warning("Classification LLM returned empty response. Defaulting to 'unknown'.")
+            return "unknown", None
+            
+    except Exception as e:
+        logger.error(f"Error during zero-shot classification: {e}")
+        return "unknown", None # Default to unknown on error
+
+
+def run_classification_stage(app_config: AppConfig):
+    global app_config_global # Hack for text_utils token counting in classify_text_zero_shot
+    app_config_global = app_config
+
+    logger.info("--- Starting Classification Stage ---")
+    if not CLASSIFICATION_TEMPLATE:
+        logger.error("Classification template not loaded. Skipping stage.")
+        # Copy segmented files to classified directory
+        input_dir_clf = Path(app_config.run.artifacts_dir) / "segmented"
+        output_dir_clf = Path(app_config.run.artifacts_dir) / "classified"
+        output_dir_clf.mkdir(parents=True, exist_ok=True)
+        for dataset_file in input_dir_clf.glob("*.parquet"):
+            target_file = output_dir_clf / dataset_file.name
+            if not target_file.exists():
+                 import shutil
+                 shutil.copy(dataset_file, target_file)
+            logger.warning(f"Copied {dataset_file.name} to classified dir as template is missing.")
+        return
+
+    class_config = app_config.run.classification
+    
+    llm_settings_for_stage = app_config.run.get_llm_settings_for_stage("classification")
+    if not llm_settings_for_stage.api_base_url or not llm_settings_for_stage.model_name:
+        logger.error("API base URL or model name for classification is not configured. Skipping stage.")
+        # Copy files
+        input_dir_clf = Path(app_config.run.artifacts_dir) / "segmented"
+        output_dir_clf = Path(app_config.run.artifacts_dir) / "classified"
+        output_dir_clf.mkdir(parents=True, exist_ok=True)
+        for dataset_file in input_dir_clf.glob("*.parquet"):
+            target_file = output_dir_clf / dataset_file.name
+            if not target_file.exists():
+                 import shutil
+                 shutil.copy(dataset_file, target_file)
+            logger.warning(f"Copied {dataset_file.name} to classified dir as LLM config is missing.")
+        return
+
+    llm_client_instance = llm_api_client.LLMAPIClient(
+        api_base_url=llm_settings_for_stage.api_base_url,
+        api_key=llm_settings_for_stage.api_key,
+        default_model_name=llm_settings_for_stage.model_name,
+        timeout_seconds=llm_settings_for_stage.timeout_seconds or 60,
+        max_retries=llm_settings_for_stage.max_retries or 3
+    )
+    
+    input_dir = Path(app_config.run.artifacts_dir) / "segmented"
+    output_dir = Path(app_config.run.artifacts_dir) / "classified"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    for dataset_file in input_dir.glob("*.parquet"):
+        dataset_name = dataset_file.stem
+        logger.info(f"Classifying dataset: {dataset_name}")
+        
+        output_file = output_dir / f"{dataset_name}.parquet"
+        if output_file.exists() and not getattr(app_config, "force_classification", False):
+            logger.info(f"Classified artifact for {dataset_name} already exists. Skipping.")
+            continue
+
+        current_dataset = file_io.load_records_from_arrow(dataset_file)
+        if not current_dataset or len(current_dataset) == 0:
+            logger.warning(f"No records in {dataset_file} for classification. Skipping.")
+            file_io.save_records_to_arrow([], output_file)
+            continue
+            
+        stage_processed_ids = app_config.state_manager.get_processed_ids("classification", dataset_name)
+        
+        updated_records = []
+        ids_processed_in_this_run = []
+
+        records_to_process = current_dataset.to_list()
+
+        for record_dict in tqdm(records_to_process, desc=f"Classifying {dataset_name}", unit="records"):
+            record_id = record_dict["id"]
+            if record_id in stage_processed_ids and record_dict.get("classification", {}).get("top"):
+                # If already processed and has a top-level classification, add it
+                updated_records.append(record_dict)
+                continue
+
+            response_text = record_dict.get("response")
+            if not response_text:
+                # Should have been filtered, but as a safeguard
+                top_genre, sub_genre = "unknown", None
+            else:
+                top_genre, sub_genre = classify_text_zero_shot(
+                    response_text, class_config, llm_client_instance
+                )
+            
+            # Ensure 'classification' field exists and is a dict
+            if "classification" not in record_dict or not isinstance(record_dict.get("classification"), dict):
+                 record_dict["classification"] = {}
+
+            record_dict["classification"]["top"] = top_genre
+            record_dict["classification"]["sub"] = sub_genre
+            
+            updated_records.append(record_dict)
+            ids_processed_in_this_run.append(record_id)
+
+            if len(ids_processed_in_this_run) >= 100:
+                app_config.state_manager.add_processed_ids_batch(ids_processed_in_this_run, "classification", dataset_name)
+                ids_processed_in_this_run.clear()
+        
+        if ids_processed_in_this_run:
+            app_config.state_manager.add_processed_ids_batch(ids_processed_in_this_run, "classification", dataset_name)
+
+        if updated_records:
+            file_io.save_records_to_arrow(updated_records, output_file)
+            logger.info(f"Finished classification for {dataset_name}: {len(updated_records)} records processed.")
+        else:
+            logger.warning(f"No records after classification for {dataset_name}.")
+            file_io.save_records_to_arrow([], output_file)
+
+    logger.info("--- Classification Stage Completed ---")
+
+# Global app_config for text_utils.count_tokens, this is a temporary workaround.
+# Proper way is to pass tokenizer_name through function calls.
+app_config_global: Optional[AppConfig] = None
+```
+(Need to fix `app_config.run.tokenizer_name` access in `classify_text_zero_shot` - pass `tokenizer_name` as arg)
+
+---
+**`dolphin-lit-rm/dolphin-lit-rm/normalization/sampler.py`** (New module)
+---
+```python
+from pathlib import Path
+from typing import List, Dict, Any, Counter as TypingCounter
+from collections import Counter
+import random
+from datasets import Dataset, concatenate_datasets
+from loguru import logger
+from tqdm import tqdm
+
+from dolphin_lit_rm.core_configs import AppConfig, NormalizationQuotaConfig
+from dolphin_lit_rm.utils import file_io, state_manager
+from dolphin_lit_rm.utils.schema_def import Record
+
+def run_normalization_stage(app_config: AppConfig):
+    logger.info("--- Starting Normalization (Quota Sampling) Stage ---")
+    norm_config = app_config.run.normalization
+    
+    input_dir = Path(app_config.run.artifacts_dir) / "classified"
+    output_dir = Path(app_config.run.artifacts_dir) / "normalized"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Output is a single combined and normalized dataset
+    output_file = output_dir / "all_sources_normalized.parquet"
+    
+    # Resumability for normalization is tricky if quotas change.
+    # If output_file exists, we assume it's correctly normalized from a previous run.
+    if output_file.exists() and not getattr(app_config, "force_normalization", False):
+        logger.info(f"Normalized artifact {output_file} already exists. Skipping normalization.")
+        return
+
+    # 1. Load and concatenate all classified datasets
+    all_classified_datasets = []
+    for dataset_file in input_dir.glob("*.parquet"):
+        logger.info(f"Loading classified data from {dataset_file.name} for normalization.")
+        ds = file_io.load_records_from_arrow(dataset_file)
+        if ds and len(ds) > 0:
+            all_classified_datasets.append(ds)
+    
+    if not all_classified_datasets:
+        logger.warning("No classified datasets found to normalize. Skipping.")
+        file_io.save_records_to_arrow([], output_file) # Save empty
+        return
+
+    # Concatenate into a single Hugging Face Dataset
+    # This might be memory intensive for very large total datasets.
+    # Consider iterating and sampling if memory becomes an issue.
+    try:
+        combined_dataset = concatenate_datasets(all_classified_datasets)
+        logger.info(f"Combined {len(all_classified_datasets)} classified datasets into one with {len(combined_dataset)} records.")
+    except Exception as e:
+        logger.error(f"Error concatenating datasets for normalization: {e}. Trying to process record by record (slower).")
+        # Fallback: process as list of dicts (more memory but might avoid some HF concat issues)
+        temp_records = []
+        for ds in all_classified_datasets:
+            temp_records.extend(ds.to_list())
+        if not temp_records:
+            logger.warning("No records after attempting to combine. Skipping normalization.")
+            file_io.save_records_to_arrow([], output_file)
+            return
+        combined_dataset = Dataset.from_list(temp_records)
+
+
+    # 2. Group records by class (e.g., 'class.top')
+    # Convert to list of dicts for easier manipulation here
+    records_list = combined_dataset.to_list()
+    
+    grouped_by_class: Dict[str, List[Dict[str, Any]]] = {}
+    for record_dict in tqdm(records_list, desc="Grouping records by class", unit="records"):
+        # Ensure 'classification' and 'top' exist
+        class_info = record_dict.get("classification", {})
+        if not isinstance(class_info, dict): # Handle if it's not a dict (e.g. None)
+            class_info = {}
+            
+        top_class = class_info.get("top", "unknown") # Default to 'unknown' if not classified
+        if top_class is None: # Handle if 'top' is explicitly None
+            top_class = "unknown"
+
+        if top_class not in grouped_by_class:
+            grouped_by_class[top_class] = []
+        grouped_by_class[top_class].append(record_dict)
+
+    logger.info(f"Records grouped into {len(grouped_by_class)} classes.")
+    for class_name, items in grouped_by_class.items():
+        logger.info(f"  Class '{class_name}': {len(items)} records")
+
+    # 3. Apply quotas
+    final_normalized_records: List[Dict[str, Any]] = []
+    quotas_top_class = norm_config.quotas.get("class.top", {})
+    default_quota = norm_config.default_quota_per_class
+
+    for class_name, items_in_class in grouped_by_class.items():
+        quota = quotas_top_class.get(class_name, default_quota)
+        
+        if len(items_in_class) > quota:
+            logger.info(f"Sampling {quota} records for class '{class_name}' from {len(items_in_class)} available.")
+            # Simple random sampling. For reproducibility, consider seeding random.
+            # random.seed(42) # Or get seed from config
+            final_normalized_records.extend(random.sample(items_in_class, quota))
+        else:
+            logger.info(f"Taking all {len(items_in_class)} records for class '{class_name}' (quota: {quota}).")
+            final_normalized_records.extend(items_in_class)
+            
+    logger.info(f"Total records after normalization: {len(final_normalized_records)}")
+
+    if final_normalized_records:
+        # Shuffle the final combined list to mix datasets and classes
+        random.shuffle(final_normalized_records) 
+        file_io.save_records_to_arrow(final_normalized_records, output_file)
+        logger.info(f"Saved {len(final_normalized_records)} normalized records to {output_file}")
+    else:
+        logger.warning("No records retained after normalization. Saving empty file.")
+        file_io.save_records_to_arrow([], output_file)
+
+    logger.info("--- Normalization (Quota Sampling) Stage Completed ---")
+
+```
+
+---
+**`dolphin-lit-rm/dolphin-lit-rm/scoring/judge.py`**
+---
+```python
+import re
+from pathlib import Path
+from typing import List, Dict, Any, Optional
+from datasets import Dataset
+from loguru import logger
+from tqdm import tqdm
+from jinja2 import Template
+
+from dolphin_lit_rm.core_configs import AppConfig, ScoringConfig, RubricConfig, MetricConfig
+from dolphin_lit_rm.utils import text_utils, file_io, state_manager, llm_api_client
+from dolphin_lit_rm.utils.schema_def import Record
+
+# Load scoring prompt template
+SCORING_TEMPLATE_PATH = Path(__file__).parent.parent / "config" / "prompts" / "scoring.jinja"
+try:
+    with SCORING_TEMPLATE_PATH.open("r") as f:
+        SCORING_TEMPLATE = Template(f.read())
+except FileNotFoundError:
+    logger.error(f"Scoring template not found at {SCORING_TEMPLATE_PATH}")
+    SCORING_TEMPLATE = None
+
+
+def parse_scores_from_llm_response(
+    llm_response: str, 
+    metrics: List[MetricConfig]
+) -> Dict[str, Optional[float]]:
+    """
+    Parses multiple scores from a single LLM response.
+    Assumes LLM output format like:
+    Score for metric_name_1 (0.0-1.0):
+    0.75
+    Score for metric_name_2 (0.0-1.0):
+    0.60
+    """
+    parsed_scores: Dict[str, Optional[float]] = {metric.name: None for metric in metrics}
+    if not llm_response:
+        return parsed_scores
+
+    # Iterate through metrics and try to find their score in the text
+    # This regex is an example and might need to be very robust
+    for metric in metrics:
+        # Regex to find "Score for <Metric Name> (0.0-1.0):\s*([0-9.]+)"
+        # Escape metric name for regex, handle potential case differences if necessary
+        pattern = re.compile(
+            rf"Score for {re.escape(metric.name)} \(0\.0-1\.0\):\s*([0-1]\.\d+|[01])", 
+            re.IGNORECASE | re.MULTILINE
+        )
+        match = pattern.search(llm_response)
+        if match:
+            try:
+                score_str = match.group(1)
+                score_float = float(score_str)
+                # Clamp score to [0,1] just in case LLM hallucinates outside range
+                parsed_scores[metric.name] = max(0.0, min(1.0, score_float))
+            except ValueError:
+                logger.warning(f"Could not parse score for metric '{metric.name}' from '{score_str}'.")
+        else:
+            logger.warning(f"Could not find score for metric '{metric.name}' in LLM response.")
+            # Attempt a simpler parse if the above fails: find metric name then a number
+            # This is a fallback and less reliable
+            simple_pattern = re.compile(rf"{re.escape(metric.name)}[^0-9]*([0-1]\.\d+|[01])", re.IGNORECASE)
+            simple_match = simple_pattern.search(llm_response)
+            if simple_match:
+                try:
+                    score_str = simple_match.group(1)
+                    score_float = float(score_str)
+                    parsed_scores[metric.name] = max(0.0, min(1.0, score_float))
+                    logger.info(f"Used fallback parsing for metric '{metric.name}', got: {score_float}")
+                except ValueError:
+                    pass # Already logged primary failure
+
+    return parsed_scores
+
+
+def score_record_with_judge(
+    record_dict: Dict[str, Any],
+    scoring_config: ScoringConfig,
+    rubric_metrics: List[MetricConfig],
+    llm_client_instance: llm_api_client.LLMAPIClient
+) -> Dict[str, Optional[float]]:
+    """Scores a single record using the judge model for all metrics in one call."""
+    if not SCORING_TEMPLATE:
+        return {metric.name: None for metric in rubric_metrics}
+
+    response_text = record_dict.get("response")
+    if not response_text:
+        logger.warning(f"Skipping scoring for record {record_dict.get('id')}: no response text.")
+        return {metric.name: None for metric in rubric_metrics}
+
+    try:
+        # Render prompt for all metrics
+        api_prompt = SCORING_TEMPLATE.render(response=response_text, metrics=rubric_metrics)
+        messages = [{"role": "user", "content": api_prompt}]
+        
+        # Calculate max_tokens needed: num_metrics * (tokens_for_score_value + tokens_for_label_and_newlines)
+        # Example: 6 metrics * (approx 4 tokens for "0.xx" + ~10 for "Score for X: \n") = ~84 tokens
+        # Add buffer.
+        estimated_max_tokens = len(rubric_metrics) * (scoring_config.max_tokens_per_metric_response + 15)
+        
+        api_response = llm_client_instance.make_request(
+            messages=messages,
+            temperature=0.0, # Deterministic for scoring
+            max_tokens=max(estimated_max_tokens, 100) # Ensure a minimum
+        )
+        
+        llm_output_text = llm_client_instance.get_completion(api_response, is_chat=True)
+        
+        if llm_output_text:
+            return parse_scores_from_llm_response(llm_output_text, rubric_metrics)
+        else:
+            logger.warning(f"Scoring failed for record {record_dict.get('id')}: Judge LLM returned empty response.")
+            return {metric.name: None for metric in rubric_metrics}
+            
+    except Exception as e:
+        logger.error(f"Error during scoring record {record_dict.get('id')}: {e}", exc_info=True)
+        return {metric.name: None for metric in rubric_metrics}
+
+
+def run_scoring_stage(app_config: AppConfig):
+    logger.info("--- Starting Rubric Scoring Stage ---")
+    if not SCORING_TEMPLATE:
+        logger.error("Scoring template not loaded. Skipping stage.")
+        # Copy reconstructed files to scored directory
+        input_dir_score = Path(app_config.run.artifacts_dir) / "reconstructed"
+        output_dir_score = Path(app_config.run.artifacts_dir) / "scored"
+        output_dir_score.mkdir(parents=True, exist_ok=True)
+        for dataset_file in input_dir_score.glob("*.parquet"):
+            target_file = output_dir_score / dataset_file.name # Or add _scored suffix
+            if not target_file.exists():
+                 import shutil
+                 shutil.copy(dataset_file, target_file)
+            logger.warning(f"Copied {dataset_file.name} to scored dir as template is missing.")
+        return
+
+    scoring_config = app_config.run.scoring
+    rubric_metrics = app_config.rubric.metrics
+    if not rubric_metrics:
+        logger.error("No metrics defined in rubric. Skipping scoring stage.")
+        # Copy files as above
+        return
+
+    llm_settings_for_stage = app_config.run.get_llm_settings_for_stage("scoring")
+    if not llm_settings_for_stage.api_base_url or not llm_settings_for_stage.model_name:
+        logger.error("API base URL or model name for scoring is not configured. Skipping stage.")
+        # Copy files as above
+        return
+
+    llm_client_instance = llm_api_client.LLMAPIClient(
+        api_base_url=llm_settings_for_stage.api_base_url,
+        api_key=llm_settings_for_stage.api_key,
+        default_model_name=llm_settings_for_stage.model_name,
+        timeout_seconds=llm_settings_for_stage.timeout_seconds or 120, # Longer timeout for scoring
+        max_retries=llm_settings_for_stage.max_retries or 2
+    )
+    
+    input_dir = Path(app_config.run.artifacts_dir) / "reconstructed" # Input from reconstructed data
+    output_dir = Path(app_config.run.artifacts_dir) / "scored"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # This stage operates on the single combined reconstructed file (or multiple if structure differs)
+    reconstructed_files = list(input_dir.glob("*_reconstructed.parquet")) # Matches output from prompt_reconstruct
+    if not reconstructed_files:
+        logger.warning(f"No reconstructed files found in {input_dir} (expected '*_reconstructed.parquet'). Skipping scoring.")
+        return
+
+    for dataset_file in reconstructed_files: # Should typically be one combined file
+        # Output name: e.g., all_sources_normalized_reconstructed_scored.parquet
+        base_name = dataset_file.stem.replace("_reconstructed", "")
+        output_file = output_dir / f"{base_name}_scored.parquet"
+        
+        logger.info(f"Scoring dataset: {dataset_file.name}")
+        
+        if output_file.exists() and not getattr(app_config, "force_scoring", False):
+            logger.info(f"Scored artifact for {dataset_file.name} already exists at {output_file}. Skipping.")
+            continue
+
+        current_dataset = file_io.load_records_from_arrow(dataset_file)
+        if not current_dataset or len(current_dataset) == 0:
+            logger.warning(f"No records in {dataset_file} for scoring. Skipping.")
+            file_io.save_records_to_arrow([], output_file)
+            continue
+            
+        # State management for this stage (on the combined dataset)
+        # Use a unique name for state tracking, e.g., base_name
+        stage_processed_ids = app_config.state_manager.get_processed_ids("scoring", base_name)
+        
+        updated_records = []
+        ids_processed_in_this_run = []
+
+        records_to_process = current_dataset.to_list()
+
+        for record_dict in tqdm(records_to_process, desc=f"Scoring {dataset_file.name}", unit="records"):
+            record_id = record_dict["id"]
+            # Check if all scores are already present for this record_id
+            all_metrics_present = True
+            if record_dict.get("scores"): # Check if scores dict exists
+                for metric_conf in rubric_metrics:
+                    if metric_conf.name not in record_dict["scores"] or record_dict["scores"][metric_conf.name] is None:
+                        all_metrics_present = False
+                        break
+            else: # No scores dict at all
+                all_metrics_present = False
+
+            if record_id in stage_processed_ids and all_metrics_present:
+                updated_records.append(record_dict)
+                continue
+
+            # Ensure 'scores' field exists and is a dict
+            if "scores" not in record_dict or not isinstance(record_dict.get("scores"), dict):
+                 record_dict["scores"] = {}
+            
+            # Only score if not all metrics are present or if forced
+            if not all_metrics_present or getattr(app_config, "force_scoring", False):
+                scores = score_record_with_judge(
+                    record_dict, scoring_config, rubric_metrics, llm_client_instance
+                )
+                record_dict["scores"].update(scores) # Update existing scores dict
+            
+            updated_records.append(record_dict)
+            ids_processed_in_this_run.append(record_id)
+
+            if len(ids_processed_in_this_run) >= 50: # Smaller batch for scoring due to cost/time
+                app_config.state_manager.add_processed_ids_batch(ids_processed_in_this_run, "scoring", base_name)
+                ids_processed_in_this_run.clear()
+        
+        if ids_processed_in_this_run:
+            app_config.state_manager.add_processed_ids_batch(ids_processed_in_this_run, "scoring", base_name)
+
+        if updated_records:
+            file_io.save_records_to_arrow(updated_records, output_file)
+            logger.info(f"Finished scoring for {dataset_file.name}: {len(updated_records)} records processed.")
+        else:
+            logger.warning(f"No records after scoring for {dataset_file.name}.")
+            file_io.save_records_to_arrow([], output_file)
+
+    logger.info("--- Rubric Scoring Stage Completed ---")
+
+```
+
+---
+**`dolphin-lit-rm/dolphin-lit-rm/postprocessing/pipeline.py`**
+---
+```python
+import hashlib
+from pathlib import Path
+from typing import List, Dict, Any, Optional
+import numpy as np
+from datasets import Dataset, concatenate_datasets
+from loguru import logger
+from tqdm import tqdm
+
+from dolphin_lit_rm.core_configs import AppConfig, PostprocessingConfig, RubricConfig
+from dolphin_lit_rm.utils import file_io, state_manager
+from dolphin_lit_rm.utils.schema_def import Record
+
+
+def calibrate_scores(
+    records: List[Dict[str, Any]], 
+    rubric_metrics: List[Dict[str, Any]], # from rubric_config.metrics
+    calibration_config: Dict[str, Any] # from postprocessing_config.calibration
+) -> List[Dict[str, Any]]:
+    """
+    Rescales each metric so 5th percentile -> 0, 95th percentile -> 1.
+    Operates in-place on the list of record dictionaries.
+    """
+    if not calibration_config.get("enabled", False) or not records:
+        logger.info("Score calibration is disabled or no records to calibrate.")
+        return records
+
+    logger.info("Starting score calibration...")
+    lower_p = calibration_config["lower_percentile"]
+    upper_p = calibration_config["upper_percentile"]
+
+    for metric_info in rubric_metrics:
+        metric_name = metric_info["name"]
+        
+        # Extract all valid scores for this metric
+        metric_scores = [
+            rec["scores"][metric_name] 
+            for rec in records 
+            if rec.get("scores") and isinstance(rec["scores"].get(metric_name), (int, float))
+        ]
+
+        if not metric_scores or len(metric_scores) < 2: # Need at least 2 points to find percentiles
+            logger.warning(f"Not enough valid scores for metric '{metric_name}' to calibrate. Skipping.")
+            continue
+
+        try:
+            p_lower_val = np.percentile(metric_scores, lower_p)
+            p_upper_val = np.percentile(metric_scores, upper_p)
+        except Exception as e:
+            logger.error(f"Error calculating percentiles for metric '{metric_name}': {e}. Skipping calibration for this metric.")
+            continue
+
+        logger.info(f"Metric '{metric_name}': Original range [{min(metric_scores):.2f}, {max(metric_scores):.2f}]. "
+                    f"{lower_p}th percentile = {p_lower_val:.2f}, {upper_p}th percentile = {p_upper_val:.2f}")
+
+        if p_upper_val == p_lower_val: # Avoid division by zero if all scores in percentile range are same
+            logger.warning(f"Percentiles {lower_p}th and {upper_p}th are identical for metric '{metric_name}'. "
+                           f"Assigning 0.5 to all or keeping original if range is 0.")
+            for rec in records:
+                if rec.get("scores") and isinstance(rec["scores"].get(metric_name), (int, float)):
+                    # If all values are same, map to 0.5 if range is zero, else map to 0 or 1 based on value
+                    # A simpler approach: if range is zero, all calibrated scores are 0.5
+                    rec["scores"][f"{metric_name}_calibrated"] = 0.5 if p_upper_val == p_lower_val else \
+                        (0.0 if rec["scores"][metric_name] <= p_lower_val else 1.0)
+
+            continue
+
+
+        # Apply calibration
+        for rec in records:
+            if rec.get("scores") and isinstance(rec["scores"].get(metric_name), (int, float)):
+                original_score = rec["scores"][metric_name]
+                calibrated_score = (original_score - p_lower_val) / (p_upper_val - p_lower_val)
+                calibrated_score = max(0.0, min(1.0, calibrated_score)) # Clamp to [0, 1]
+                rec["scores"][f"{metric_name}_calibrated"] = calibrated_score
+            # else: keep original None or missing score as is for calibrated field too
+
+    logger.info("Score calibration completed.")
+    return records
+
+
+def filter_by_missing_metrics(
+    records: List[Dict[str, Any]],
+    rubric_metrics: List[Dict[str, Any]],
+    min_metrics_present_percent: float
+) -> List[Dict[str, Any]]:
+    """Filters records that have too many missing scores."""
+    if min_metrics_present_percent <= 0:
+        return records
+
+    num_total_metrics = len(rubric_metrics)
+    min_metrics_required = int(num_total_metrics * min_metrics_present_percent)
+    
+    retained_records = []
+    dropped_count = 0
+    for rec in records:
+        if not rec.get("scores"): # No scores dict at all
+            if min_metrics_required > 0: # If any metrics are required, drop
+                dropped_count +=1
+                continue
+            else: # No metrics required, keep
+                retained_records.append(rec)
+                continue
+
+        present_metrics_count = sum(
+            1 for metric in rubric_metrics 
+            if isinstance(rec["scores"].get(metric["name"]), (int, float)) # Check original scores
+        )
+        if present_metrics_count >= min_metrics_required:
+            retained_records.append(rec)
+        else:
+            dropped_count += 1
+            
+    if dropped_count > 0:
+        logger.info(f"Dropped {dropped_count} records due to missing metrics (required {min_metrics_required}/{num_total_metrics}).")
+    return retained_records
+
+
+def split_dataset(
+    records: List[Dict[str, Any]], 
+    split_ratios: Dict[str, float]
+) -> Dict[str, List[Dict[str, Any]]]:
+    """Splits records into train/validation/test sets based on hash of record ID."""
+    # Ensure splits sum to 1 (approximately)
+    if not np.isclose(sum(split_ratios.values()), 1.0):
+        logger.warning(f"Split ratios {split_ratios} do not sum to 1. Normalizing.")
+        total_ratio = sum(split_ratios.values())
+        split_ratios = {k: v / total_ratio for k, v in split_ratios.items()}
+
+    # Sort splits to process in a defined order (e.g., train, val, test)
+    # This ensures that if ratios are e.g. train:0.8, val:0.1, test:0.1,
+    # an ID gets assigned to 'train' if its hash falls in the first 0.8 range.
+    sorted_splits = sorted(split_ratios.items(), key=lambda item: item[0]) # Sort by name for consistency
+
+    split_boundaries = {}
+    current_boundary = 0.0
+    for name, ratio in sorted_splits:
+        split_boundaries[name] = (current_boundary, current_boundary + ratio)
+        current_boundary += ratio
+    
+    # Ensure the last boundary reaches 1.0
+    # last_split_name = sorted_splits[-1][0]
+    # split_boundaries[last_split_name] = (split_boundaries[last_split_name][0], 1.0)
+
+
+    split_records: Dict[str, List[Dict[str, Any]]] = {name: [] for name in split_ratios.keys()}
+
+    for rec in records:
+        record_id = rec["id"]
+        # Use a part of sha256 hash for stable splitting
+        # Convert hex hash to an integer, then scale to [0,1)
+        h = hashlib.sha256(record_id.encode('utf-8')).hexdigest()
+        # Take first 8 hex chars (32 bits), convert to int
+        hash_val = int(h[:8], 16) 
+        # Normalize to [0,1) range
+        normalized_hash = hash_val / (2**32) 
+
+        assigned = False
+        for name, (lower_bound, upper_bound) in split_boundaries.items():
+            if lower_bound <= normalized_hash < upper_bound:
+                split_records[name].append(rec)
+                assigned = True
+                break
+        if not assigned: # Should not happen if boundaries are correct, but as a fallback
+            logger.warning(f"Record {record_id} (hash {normalized_hash}) not assigned to any split. Assigning to first split: {sorted_splits[0][0]}")
+            split_records[sorted_splits[0][0]].append(rec)
+
+
+    for name, data in split_records.items():
+        logger.info(f"Split '{name}': {len(data)} records ({len(data)/len(records)*100 if records else 0:.2f}%).")
+        
+    return split_records
+
+
+def run_postprocessing_stage(app_config: AppConfig):
+    logger.info("--- Starting Post-processing Stage ---")
+    post_config = app_config.run.postprocessing
+    rubric_config = app_config.rubric
+    
+    input_dir = Path(app_config.run.artifacts_dir) / "scored"
+    output_dir = Path(app_config.run.artifacts_dir) / "final"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # This stage expects one primary scored file (e.g., all_sources_normalized_scored.parquet)
+    scored_files = list(input_dir.glob("*_scored.parquet"))
+    if not scored_files:
+        logger.warning(f"No scored files found in {input_dir} (expected '*_scored.parquet'). Skipping post-processing.")
+        return
+    
+    if len(scored_files) > 1:
+        logger.warning(f"Multiple scored files found: {scored_files}. Concatenating them for post-processing.")
+        all_scored_datasets = [file_io.load_records_from_arrow(f) for f in scored_files if f.stat().st_size > 0]
+        if not all_scored_datasets:
+            logger.error("No data in scored files after loading. Skipping post-processing.")
+            return
+        try:
+            combined_scored_dataset = concatenate_datasets(all_scored_datasets)
+        except Exception as e:
+            logger.error(f"Failed to concatenate scored datasets: {e}. Processing first file only: {scored_files[0]}")
+            combined_scored_dataset = file_io.load_records_from_arrow(scored_files[0])
+    elif scored_files:
+        combined_scored_dataset = file_io.load_records_from_arrow(scored_files[0])
+    else: # Should be caught by the first check
+        return
+
+    if not combined_scored_dataset or len(combined_scored_dataset) == 0:
+        logger.warning("No records in combined scored dataset. Skipping post-processing.")
+        return
+
+    logger.info(f"Loaded {len(combined_scored_dataset)} records for post-processing.")
+    
+    # Convert to list of dicts for easier manipulation
+    records_list = combined_scored_dataset.to_list()
+
+    # 1. Calibrate scores (optional)
+    if post_config.calibration.enabled:
+        records_list = calibrate_scores(records_list, rubric_config.metrics, vars(post_config.calibration))
+
+    # 2. Drop records with > X% missing metrics
+    records_list = filter_by_missing_metrics(records_list, rubric_config.metrics, post_config.min_metrics_present_percent)
+    if not records_list:
+        logger.warning("No records remaining after filtering by missing metrics. Halting post-processing.")
+        return
+
+    # 3. Partition into train/val/test
+    split_ratios_dict = vars(post_config.splits)
+    final_splits = split_dataset(records_list, split_ratios_dict)
+
+    # 4. Write final dataset releases
+    dataset_name_prefix = post_config.final_dataset_name_prefix
+    for split_name, split_data in final_splits.items():
+        if split_data: # Only save if there's data for the split
+            output_file = output_dir / f"{dataset_name_prefix}.{split_name}.parquet"
+            file_io.save_records_to_arrow(split_data, output_file)
+            logger.info(f"Saved final split '{split_name}' with {len(split_data)} records to {output_file}")
+        else:
+            logger.warning(f"No data for split '{split_name}'. Not saving file.")
+            
+    logger.info("--- Post-processing Stage Completed ---")
+
+```
+
+---
+**`dolphin-lit-rm/dolphin-lit-rm/cli.py`**
+---
+```python
+import shutil
+import sys
+from pathlib import Path
+import typer
+from typing import Optional, List
+from loguru import logger
+import datetime
+import random
+import string
+import yaml # For loading/dumping configs
+
+from dolphin_lit_rm.core_configs import RunConfig, DatasetsConfig, RubricConfig, AppConfig
+from dolphin_lit_rm.utils.state_manager import StateManager
+
+# Import stage runners
+from dolphin_lit_rm.ingestion.main import run_ingestion_stage
+from dolphin_lit_rm.preprocessing.filter import run_filter_stage
+from dolphin_lit_rm.preprocessing.segment import run_segmentation_stage
+from dolphin_lit_rm.classification.classifier import run_classification_stage # Needs global app_config fix
+from dolphin_lit_rm.normalization.sampler import run_normalization_stage
+from dolphin_lit_rm.preprocessing.prompt_reconstruct import run_prompt_reconstruction_stage
+from dolphin_lit_rm.scoring.judge import run_scoring_stage
+from dolphin_lit_rm.postprocessing.pipeline import run_postprocessing_stage
+
+
+app = typer.Typer(name="dolphin-lit-rm", help="Literary Reward Model Data Pipeline CLI")
+
+# --- Helper to load configurations ---
+def load_configuration(
+    run_config_path: Optional[Path],
+    datasets_config_path: Optional[Path],
+    rubric_config_path: Optional[Path],
+    existing_run_dir: Optional[Path] = None # For resuming
+) -> AppConfig:
+    
+    if existing_run_dir:
+        logger.info(f"Resuming run from: {existing_run_dir}")
+        # Load configs from the existing run directory
+        run_config_path = existing_run_dir / "config" / "run.yml"
+        datasets_config_path = existing_run_dir / "config" / "datasets.yml"
+        rubric_config_path = existing_run_dir / "config" / "rubric.yml"
+        if not all([p.exists() for p in [run_config_path, datasets_config_path, rubric_config_path]]):
+            logger.error(f"One or more config files not found in resumed run directory {existing_run_dir}/config. Exiting.")
+            raise typer.Exit(code=1)
+    else:
+        # Ensure default paths are provided if specific ones aren't
+        if not run_config_path: run_config_path = Path("dolphin-lit-rm/config/run.yml")
+        if not datasets_config_path: datasets_config_path = Path("dolphin-lit-rm/config/datasets.yml")
+        if not rubric_config_path: rubric_config_path = Path("dolphin-lit-rm/config/rubric.yml")
+
+    try:
+        with open(run_config_path, 'r') as f:
+            run_config_data = yaml.safe_load(f)
+        run_cfg = RunConfig(**run_config_data)
+
+        with open(datasets_config_path, 'r') as f:
+            datasets_config_data = yaml.safe_load(f)
+        datasets_cfg = DatasetsConfig(**datasets_config_data)
+
+        with open(rubric_config_path, 'r') as f:
+            rubric_config_data = yaml.safe_load(f)
+        rubric_cfg = RubricConfig(**rubric_config_data)
+
+    except FileNotFoundError as e:
+        logger.error(f"Configuration file not found: {e.filename}. Exiting.")
+        raise typer.Exit(code=1)
+    except Exception as e: # Catch Pydantic validation errors or other YAML issues
+        logger.error(f"Error loading or validating configuration: {e}. Exiting.")
+        raise typer.Exit(code=1)
+
+    return AppConfig(run=run_cfg, datasets=datasets_cfg, rubric=rubric_cfg)
+
+
+# --- Helper to setup run directory and logging ---
+def setup_run_environment(app_cfg: AppConfig, resume_dir: Optional[Path]) -> AppConfig:
+    if resume_dir:
+        current_run_dir = resume_dir
+        # Configs are already loaded from resume_dir by load_configuration
+    else:
+        # Create new run directory
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        random_suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=6))
+        run_name = f"run_{timestamp}_{random_suffix}"
+        current_run_dir = Path(app_cfg.run.runs_parent_dir) / run_name
+        current_run_dir.mkdir(parents=True, exist_ok=True)
+        logger.info(f"New run directory created: {current_run_dir}")
+
+        # Copy current configs to the new run directory for reproducibility
+        run_config_copy_dir = current_run_dir / "config"
+        run_config_copy_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Determine original config paths (this is a bit of a hack, assumes they were default or passed)
+        # This part needs to be robust if CLI overrides were used for config paths.
+        # For simplicity, assume they are the default paths if not resuming.
+        orig_run_cfg_path = Path(getattr(app_cfg, "_cli_run_config_path", "dolphin-lit-rm/config/run.yml"))
+        orig_ds_cfg_path = Path(getattr(app_cfg, "_cli_datasets_config_path", "dolphin-lit-rm/config/datasets.yml"))
+        orig_rb_cfg_path = Path(getattr(app_cfg, "_cli_rubric_config_path", "dolphin-lit-rm/config/rubric.yml"))
+
+        try:
+            shutil.copy(orig_run_cfg_path, run_config_copy_dir / "run.yml")
+            shutil.copy(orig_ds_cfg_path, run_config_copy_dir / "datasets.yml")
+            shutil.copy(orig_rb_cfg_path, run_config_copy_dir / "rubric.yml")
+            app_cfg.run.run_config_copy_path = run_config_copy_dir / "run.yml"
+        except Exception as e:
+            logger.warning(f"Could not copy config files to run directory: {e}")
+
+
+    # Update AppConfig with dynamic paths
+    app_cfg.run.current_run_dir = current_run_dir
+    app_cfg.run.artifacts_dir = current_run_dir / "artifacts"
+    app_cfg.run.logs_dir = current_run_dir / "logs"
+    app_cfg.run.state_dir = current_run_dir / "artifacts" / "state" # State inside artifacts
+
+    app_cfg.run.artifacts_dir.mkdir(parents=True, exist_ok=True)
+    app_cfg.run.logs_dir.mkdir(parents=True, exist_ok=True)
+    app_cfg.run.state_dir.mkdir(parents=True, exist_ok=True)
+
+    # Configure logging to file within the run directory
+    log_file_path = app_cfg.run.logs_dir / "pipeline.log"
+    logger.remove() # Remove default handler
+    logger.add(sys.stderr, level=app_cfg.run.default_log_level.upper())
+    logger.add(log_file_path, level=app_cfg.run.default_log_level.upper(), rotation="10 MB")
+    
+    logger.info(f"Logging to console and to: {log_file_path}")
+    logger.info(f"Artifacts will be stored in: {app_cfg.run.artifacts_dir}")
+    logger.info(f"State information in: {app_cfg.run.state_dir}")
+
+    # Initialize StateManager
+    app_cfg.state_manager = StateManager(state_dir=app_cfg.run.state_dir)
+    
+    return app_cfg
+
+# --- Global options ---
+@app.callback()
+def global_options(
+    ctx: typer.Context,
+    run_config_file: Optional[Path] = typer.Option(None, "--run-config", "-rc", help="Path to the run configuration YAML file.", exists=False, dir_okay=False, resolve_path=True),
+    datasets_config_file: Optional[Path] = typer.Option(None, "--datasets-config", "-dc", help="Path to the datasets configuration YAML file.", exists=False, dir_okay=False, resolve_path=True),
+    rubric_config_file: Optional[Path] = typer.Option(None, "--rubric-config", "-rbc", help="Path to the rubric configuration YAML file.", exists=False, dir_okay=False, resolve_path=True),
+    resume_run_dir: Optional[Path] = typer.Option(None, "--resume", "-r", help="Path to an existing run directory to resume.", exists=True, file_okay=False, dir_okay=True, resolve_path=True),
+    # Add force flags if needed, e.g. --force-ingest, --force-all-stages
+    # force_all: bool = typer.Option(False, "--force-all", help="Force re-running all stages, ignoring existing artifacts/state."),
+    # force_stages: Optional[List[str]] = typer.Option(None, "--force-stages", help="Comma-separated list of stages to force re-run.")
+):
+    """Dolphin LRM Data Pipeline: Process texts for reward modeling."""
+    
+    # Store original config paths if provided, for copying later
+    # This is a bit of a workaround to pass these to setup_run_environment
+    # Pydantic models in AppConfig are the source of truth after loading.
+    _cli_options = {
+        "_cli_run_config_path": run_config_file,
+        "_cli_datasets_config_path": datasets_config_file,
+        "_cli_rubric_config_path": rubric_config_file,
+    }
+
+    app_config = load_configuration(run_config_file, datasets_config_file, rubric_config_file, resume_run_dir)
+    
+    # Update app_config with any CLI-provided paths for setup_run_environment to use if not resuming
+    for k, v in _cli_options.items():
+        if v is not None:
+            setattr(app_config, k, v)
+
+    app_config = setup_run_environment(app_config, resume_run_dir)
+    
+    # Make AppConfig available to subcommands
+    ctx.obj = app_config
+
+
+# --- Pipeline Stages Commands ---
+
+PIPELINE_STAGES = {
+    "ingest": run_ingestion_stage,
+    "filter": run_filter_stage,
+    "segment": run_segmentation_stage,
+    "classify": run_classification_stage,
+    "normalize": run_normalization_stage,
+    "reconstruct-prompts": run_prompt_reconstruction_stage,
+    "score": run_scoring_stage,
+    "postprocess": run_postprocessing_stage,
+}
+
+@app.command()
+def ingest(ctx: typer.Context):
+    """1. Ingest raw datasets."""
+    app_config: AppConfig = ctx.obj
+    run_ingestion_stage(app_config)
+
+@app.command()
+def filter(ctx: typer.Context):
+    """2. Pre-filter raw data (length, lang, dedupe)."""
+    app_config: AppConfig = ctx.obj
+    run_filter_stage(app_config)
+
+@app.command()
+def segment(ctx: typer.Context):
+    """3. Segment long-form documents."""
+    app_config: AppConfig = ctx.obj
+    run_segmentation_stage(app_config)
+
+@app.command()
+def classify(ctx: typer.Context):
+    """4. Classify texts by genre/sub-genre."""
+    app_config: AppConfig = ctx.obj
+    run_classification_stage(app_config)
+
+@app.command()
+def normalize(ctx: typer.Context):
+    """5. Apply quota-based sampling to classified data."""
+    app_config: AppConfig = ctx.obj
+    run_normalization_stage(app_config)
+
+@app.command(name="reconstruct-prompts") # Name in CLI
+def reconstruct_prompts_command(ctx: typer.Context):
+    """6. Reconstruct prompts for prompt-less texts."""
+    app_config: AppConfig = ctx.obj
+    run_prompt_reconstruction_stage(app_config)
+
+@app.command()
+def score(ctx: typer.Context):
+    """7. Score texts using the judge model based on the rubric."""
+    app_config: AppConfig = ctx.obj
+    run_scoring_stage(app_config)
+
+@app.command()
+def postprocess(ctx: typer.Context):
+    """8. Calibrate scores and create final train/val/test splits."""
+    app_config: AppConfig = ctx.obj
+    run_postprocessing_stage(app_config)
+
+
+@app.command()
+def process_all(
+    ctx: typer.Context,
+    skip_stages: Optional[str] = typer.Option(None, help="Comma-separated list of stages to skip."),
+    run_only_stages: Optional[str] = typer.Option(None, help="Comma-separated list of stages to run exclusively.")
+):
+    """Run all pipeline stages sequentially."""
+    app_config: AppConfig = ctx.obj
+    logger.info("--- Starting Full Pipeline Process ---")
+
+    stages_to_skip = set(skip_stages.split(',')) if skip_stages else set()
+    stages_to_run_only = set(run_only_stages.split(',')) if run_only_stages else set()
+
+    for stage_name, stage_func in PIPELINE_STAGES.items():
+        if stage_name in stages_to_skip:
+            logger.info(f"Skipping stage: {stage_name} as per --skip-stages.")
+            continue
+        if stages_to_run_only and stage_name not in stages_to_run_only:
+            logger.info(f"Skipping stage: {stage_name} as it's not in --run-only-stages.")
+            continue
+        
+        try:
+            stage_func(app_config)
+        except Exception as e:
+            logger.error(f"Error during stage '{stage_name}': {e}", exc_info=True)
+            logger.error(f"Pipeline halted at stage '{stage_name}'. Fix the error and resume if possible.")
+            raise typer.Exit(code=1)
+            
+    logger.info("--- Full Pipeline Process Completed Successfully ---")
+
+
+if __name__ == "__main__":
+    app()
+
+```
+
+---
+**`dolphin-lit-rm/scripts/run_pipeline.sh`** (Example script)
+---
+```bash
+#!/bin/bash
+
+# Example script to run the full pipeline
+# Ensure you are in the project root directory (dolphin-lit-rm)
+# and have poetry environment activated or use `poetry run`
+
+# Default config files (can be overridden by CLI options if needed)
+RUN_CONFIG="dolphin-lit-rm/config/run.yml"
+DATASETS_CONFIG="dolphin-lit-rm/config/datasets.yml"
+RUBRIC_CONFIG="dolphin-lit-rm/config/rubric.yml"
+
+# --- Option 1: Start a new run ---
+# The CLI will create a new run directory under `runs_parent_dir` specified in run.yml
+echo "Starting a new pipeline run..."
+poetry run dolphin-lit-rm process-all \
+    --run-config "$RUN_CONFIG" \
+    --datasets-config "$DATASETS_CONFIG" \
+    --rubric-config "$RUBRIC_CONFIG"
+
+# --- Option 2: Resume a specific run ---
+# Replace 'path/to/your/existing_run_YYYYMMDD_HHMMSS_xxxxxx' with the actual directory
+# EXISTING_RUN_DIR="output/runs/run_20231121_100000_abcdef" 
+# if [ -d "$EXISTING_RUN_DIR" ]; then
+#   echo "Resuming pipeline run from: $EXISTING_RUN_DIR"
+#   poetry run dolphin-lit-rm process-all --resume "$EXISTING_RUN_DIR"
+# else
+#   echo "Resume directory $EXISTING_RUN_DIR not found. Cannot resume."
+# fi
+
+# --- Option 3: Run specific stages ---
+# echo "Running only ingestion and filter stages for a new run..."
+# poetry run dolphin-lit-rm process-all \
+#     --run-config "$RUN_CONFIG" \
+#     --datasets-config "$DATASETS_CONFIG" \
+#     --rubric-config "$RUBRIC_CONFIG" \
+#     --run-only-stages "ingest,filter"
+
+# --- Option 4: Skip specific stages ---
+# echo "Running all stages EXCEPT normalization and scoring for a new run..."
+# poetry run dolphin-lit-rm process-all \
+#     --run-config "$RUN_CONFIG" \
+#     --datasets-config "$DATASETS_CONFIG" \
+#     --rubric-config "$RUBRIC_CONFIG" \
+#     --skip-stages "normalize,score"
+
+
+echo "Pipeline execution script finished."
+```
+
+This completes the generation of the core files based on the plan and your feedback. There are many `# TODO`s and areas for refinement (error handling, more sophisticated logic, testing, performance optimization for very large data), but this provides a comprehensive and runnable (with appropriate setup and models) starting point. Remember to `poetry install` and download necessary models (`spacy`, `fasttext`). The LLM API endpoints in `run.yml` also need to be correctly configured.

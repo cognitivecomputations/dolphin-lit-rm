@@ -1,0 +1,591 @@
+### Project Context
+
+We are building a **literary reward model (LRM)**—a neural “critic” that assigns continuous-valued rewards to text so that a separate *writing* model can be trained with reinforcement learning (RL, PPO/DPO/RL-HF).  The reward model must:
+
+* **Generalise across writing forms**: fiction, poetry, journalism, essays, dialogue, technical explanation, marketing copy, etc.
+* Produce **per-metric scalar scores** on a 0 – 1 scale (e.g. *narrative coherence = 0.74*, *stylistic originality = 0.28*, …).
+* Be trained from **partially noisy data** scored automatically by a mid-tier judge model (we’ll start with Qwen-3-30B-Instruct for speed).
+
+Because RL training expects *prompt → response → reward*, every text chunk must ultimately have:
+
+1. A *prompt* (real, synthetic, or reconstructed)
+2. A *response* (the text we care about)
+3. A vector of rubric scores
+
+The pipeline you’ll build converts heterogeneous raw corpora into that triplet and writes them into sharded Arrow/HF datasets.
+
+---
+
+### Why three dataset shapes?
+
+1. **Prompt+Assistant pairs (Shape A)**—these already look like dialogic RL data.  Example: ShareGPT, Alpaca.
+2. **Standalone short pieces (Shape B)**—poems, Reddit stories, reviews.  The text stands alone; we must fabricate a plausible prompt later so RL algorithms have a “query”.
+3. **Long-form documents (Shape C)**—books, articles.  They must be segmented into sub-docs small enough to fit the judge’s context window **before** any further processing.
+
+---
+
+### Prompt reconstruction philosophy
+
+Prompt fabrication is expensive (requires another LLM pass) and slightly noisy, so we punt it to the end of preprocessing—*after* length filtering, language filtering, and segmentation have already thrown away 70-90 % of useless lines.  We only reconstruct prompts for texts that survive the cheap filters.
+
+---
+
+### Rubric & scoring approach
+
+* **Metrics** (initial set):
+  narrative coherence · stylistic originality · emotional impact · clarity · factual correctness (for non-fiction) · overall quality
+* **Scale**: 0.0 (worst) → 1.0 (best).
+* **Judge model**: Qwen-3-30B-Instruct served with vLLM.  Temperature 0, one short number per metric.
+* **Calibration**: raw scores are later linearly re-scaled so that the empirical 5th percentile becomes 0 and the 95th percentile becomes 1, ensuring full reward range utilisation.
+
+---
+
+### Genre & sub-genre classification
+
+Why not skip it?  Because:
+
+* We want stratified sampling when fine-tuning the RM so it doesn’t over-fit to, say, modern news style.
+* We can later build per-genre reward heads (optional).
+* It lets us diagnose score distributions (“why is stylistic originality always low for screenplays?”).
+
+We start with a zero-shot LLM classifier or a small fine-tuned text-encoder; high confidence only.  Unknowns remain unlabeled—better than mis-labeling.
+
+
+
+
+
+
+
+
+
+
+
+
+
+Below is a step-by-step implementation plan for a **literary-reward-model data pipeline**.  The document assumes a fresh repo and a developer who has no prior context.  Follow the order; each section builds on the previous one.
+
+---
+
+## 1. High-level data flow
+
+1. **Ingest raw datasets**
+   *Three canonical shapes*
+   A. `Prompt+Assistant` pairs (e.g. ShareGPT, Alpaca)
+   B. Stand-alone short pieces with no prompt (e.g. Reddit WritingPrompts completions, poetry dumps)
+   C. Long-form documents (books, articles) needing segmentation
+2. **Normalize to a common record schema**
+3. **Light pre-filter** (length checks, language ID, profanity, unreadable junk)
+4. **Segment type-C documents** into ≤ N-token chunks
+5. **Prompt-reconstruction pass** (only for records lacking prompts; runs *after* filtering & segmentation)
+6. **Classification pass** (genre, sub-genre, form)
+7. **Rubric-scoring pass** (0-1 scalar for each metric)
+8. **Post-processing** (score calibration, outlier flagging, shard export)
+9. **Artifact registry / metadata index** for downstream RL and analysis
+
+---
+
+## 2. Repository & service layout
+
+```
+dolphin-lit-rm/
+├── pyproject.toml
+├── README.md
+├── dolphin-lit-rm/
+│   ├── __init__.py
+│   ├── config/
+│   │   ├── run.yml
+│   │   ├── datasets.yml
+│   │   ├── rubric.yml
+│   │   └── prompts/
+│   │       └── scoring.jinja
+│   ├── ingestion/
+│   │   ├── sharegpt.py
+│   │   ├── standalone.py
+│   │   └── longform.py
+│   ├── preprocessing/
+│   │   ├── filter.py
+│   │   ├── segment.py
+│   │   └── prompt_reconstruct.py
+│   ├── classification/
+│   │   ├── classifier.py
+│   ├── scoring/
+│   │   ├── judge.py
+│   ├── utils/
+│   │   ├── io.py
+│   │   ├── text.py
+│   │   └── hf_dataset.py
+│   └── cli.py
+└── scripts/
+    ├── run_ingest.sh
+    ├── run_preprocess.sh
+    ├── run_classify.sh
+    ├── run_score.sh
+    └── merge_artifacts.sh
+```
+
+*Everything is importable as `dolphin-lit-rm.*`; CLI wrappers call into the package for reproducibility.*
+
+---
+
+## 3. Common record schema (single-source-of-truth)
+
+Each text unit **after** segmentation is stored as one JSON-serialisable dict:
+
+```python
+{
+  "id": "sha256:...",           # deterministic hash of (source_id + offset)
+  "source": "sharegpt",         # dataset short-name
+  "orig_split": "train",        # original split if any
+  "prompt": "...",              # None unless reconstructed
+  "response": "...",            # the actual text chunk
+  "meta": {
+      "prompt_type": "human",   # human / synthetic / reconstructed
+      "source_path": "...",     # filesystem trace
+      "char_span": [a, b],      # for long documents
+      "lang": "en"
+  },
+  "class": {                    # filled in classification stage
+      "top": null,
+      "sub": null
+  },
+  "scores": {}                  # filled in scoring stage
+}
+```
+
+Serialize to an on-disk **Arrow** / **HF `datasets`** object for streamable IO.
+
+---
+
+## 4. Ingestion stage
+
+### 4.1  Prompt+Assistant datasets (`ingestion/sharegpt.py`)
+
+* Load JSONL.
+* For each record extract the last user prompt and the assistant reply; ignore other turns.
+* Write directly to normalized dataset (`prompt` field filled, no segmentation).
+
+### 4.2  Stand-alone short pieces (`ingestion/standalone.py`)
+
+* Read line-delimited files, CSVs, or scraped dumps.
+* Treat each item as `response`; `prompt=None`.
+* Store one record per item.
+
+### 4.3  Long-form documents (`ingestion/longform.py`)
+
+* Accept ePub, plain-text, PDF-to-text.
+* Keep entire document in memory only long enough for segmentation (next stage).
+* Tag record with `meta.source_path` for provenance.
+
+Ingestion writes to `artifacts/raw/{dataset_name}.arrow`.
+
+---
+
+## 5. Pre-filtering (`preprocessing/filter.py`)
+
+Cheap heuristics applied **streamingly**:
+
+* `len(response)` in tokens ∉ \[min\_tok, max\_tok] → drop
+* Non-English language probability < 0.9 via `fasttext` → drop
+* Blacklist regexes (HTML noise, “lorem ipsum”) → drop
+* De-duplicate on `sha1(response)` across *all* datasets (use LMDB cache)
+
+Output: `artifacts/filtered/{dataset_name}.arrow`.
+
+---
+
+## 6. Segmentation (`preprocessing/segment.py`)
+
+Only for type-C datasets.
+
+* Sentence-aware splitter (`spacy` or `nltk`) generates chunks ≤ `CTX_TOK-2k`.
+* Ensure overlap if narrative coherence matters (optional).
+* Each chunk becomes a new normalized record inheriting metadata.
+
+---
+
+## 7. Prompt reconstruction (`preprocessing/prompt_reconstruct.py`)
+
+**Purpose**: fabricate a plausible prompt so downstream RL models see (prompt → response) pairs.
+
+1. **Gatekeeper**: apply only to records where
+
+   * `prompt is None`
+   * `len(response)` ≤ `MAX_PROMPT_REC_TOK`
+2. **Model**: load a small generative model fine-tuned on prompt-response pairs (e.g. Zephyr-7B).
+3. **Prompt template**:
+
+   > “Write *one* user prompt that could have realistically produced the following assistant answer:\n\n"""\n{{response}}\n"""\nPrompt:”
+4. Post-process output: strip newlines, truncate 256 chars.
+5. Write back to `record["prompt"]`.
+6. Tag `meta.prompt_type="reconstructed"`.
+
+Store in `artifacts/reconstructed/*.arrow`.
+*This step is the most expensive — run only after filters trimmed the corpus by ≥ 80 %.*
+
+---
+
+## 8. Classification pass (`classification/classifier.py`)
+
+Goal: assign `class.top` and `class.sub`.
+
+* **Label taxonomy** stored in `config/genre_taxonomy.yml`.
+* Two options; pick one or chain them:
+
+  1. **Zero-shot LLM** (cheap): prompt Qwen-7B-Chat with “Choose one label from the list…”.
+  2. **Fine-tuned classifier**: MiniLM or DeBERTa-v3 fine-tuned on annotated seed set.  Faster per record.
+* Confidence threshold; if unsure, label “unknown”.
+* Write predictions to `record["class"]`.
+* Output: `artifacts/classified/*.arrow`.
+
+---
+
+## 9. Rubric-scoring (`scoring/judge.py`)
+
+### 9.1  Rubric definition
+
+`config/rubric.yml` holds a list of metric names.  Each metric is scored independently from 0.0 to 1.0.
+
+### 9.2  Judging engine
+
+* **Model**: Qwen-3-30B-Instruct (or whatever is configured).
+* **Serving**: vLLM with tensor-parallel (`--tp 8`) or round-robin device map.
+* **Prompt template** (Jinja):
+
+```
+{{metric_prompt}}
+TEXT:
+"""
+{{response}}
+"""
+Score (0.0-1.0):
+```
+
+`metric_prompt` is one line:
+
+> “Rate the text for *Narrative Coherence* on a continuous scale.”
+
+* For each record × metric make one generation request (`temperature=0`, `max_tokens=4`).
+* Parse to float; if parse fails, mark `null` and log.
+
+### 9.3  Batching strategy
+
+* Group 8 metrics for one record into a *single* prompt separated by headings to reduce overhead; parse eight numbers out.
+* Batch size: 8–16 prompts → fits 6 k tokens window comfortably.
+
+### 9.4  Output
+
+Scores are merged into the record’s `scores` dict:
+
+```json
+"scores": {
+  "narrative_coherence": 0.63,
+  "stylistic_originality": 0.42,
+  ...
+}
+```
+
+Save to `artifacts/scored/shard_{k}.arrow`.
+
+---
+
+## 10. Post-processing
+
+* **Calibration script** rescales each metric so 5th percentile ↦ 0, 95th percentile ↦ 1 (optional).
+* Drop records with > 30 % missing metrics.
+* Partition into train/val/test by hash of `id` (stable).
+* Write final dataset release: `dolphin-lit-rm_v0.{split}.arrow`.
+
+---
+
+## 11. Orchestration & reproducibility
+
+* **CLI entry points** in `dolphin-lit-rm.cli`:
+
+  * `dolphin-lit-rm ingest --dataset sharegpt`
+  * `dolphin-lit-rm preprocess --stage filter,segment,prompt_reconstruct`
+  * `dolphin-lit-rm classify`
+  * `dolphin-lit-rm score`
+* Use **`hydra`** or **`pydantic-settings`** for runtime config overrides.
+* Every stage logs to `logs/{stage}.log` and checkpoints progress in `artifacts/state/{stage}.json` so you can resume.
+
+
+--
+
+further notes:
+
+the config for the run should be specified in run.yaml. this will contain a link to the openai-compatible endpoint (base url) that will be hosting the model being used for each stage, as well as api key and model name. we should have a separately defined set of these for each stage, as we may wish to point to different models for different stages.
+
+the config should also define timeouts, retry limits, output dirs etc.
+
+the cli should be able to handle all the config params, and any specified by cli should override the config params.
+
+the pipeline should be resumable, per items already processed in the results file vs the respective source items / row ids
+
+there should be a definable max items from each of the source datasets (defined individually)
+
+don't use openai's package, use requests
+
+the pipeline should be able to handle an arbitrary number of provided datasets (as local arrow format, json, or hf ids), with the format & number of items (or % of records) specified in the config
+
+--
+
+ok now generate a plan for this codebase, and i will approve or suggest changes.
+
+
+
+
+
+
+--------------------
+
+
+
+
+
+
+Okay, this is a solid and detailed specification. Let's break down the implementation into a phased plan.
+
+## Development Plan: Literary Reward Model Data Pipeline
+
+We'll structure this into logical phases, focusing on building testable components incrementally.
+
+**Phase 0: Project Initialization & Core Infrastructure**
+
+*   **Goal:** Set up the project structure, essential configurations, and core utilities.
+*   **Tasks:**
+    1.  **Repository Setup:**
+        *   Initialize Git repository.
+        *   Create the directory structure as outlined in "2. Repository & service layout".
+        *   Create `pyproject.toml` (e.g., using Poetry or Hatch) with initial dependencies:
+            *   `python >= 3.9`
+            *   `pydantic` (for config and schema validation)
+            *   `pydantic-settings` (for loading config from YAML/env vars)
+            *   `pyyaml` (for YAML parsing)
+            *   `typer[all]` (for CLI)
+            *   `requests` (for HTTP calls to LLM APIs)
+            *   `pyarrow`
+            *   `datasets` (Hugging Face `datasets` library)
+            *   `loguru` (for logging)
+            *   `fasttext` (for language ID)
+            *   `spacy` (for segmentation; download model e.g., `en_core_web_sm`)
+            *   `lmdb` (for deduplication cache)
+            *   `jinja2` (for prompt templating)
+        *   Create a basic `README.md` and `.gitignore`.
+    2.  **Configuration System (`dolphin-lit-rm/config/`)**:
+        *   Define Pydantic models for `run.yml`, `datasets.yml`, `rubric.yml`.
+            *   `run.yml`: `api_base_url`, `api_key`, `model_name`, `timeout_seconds`, `max_retries` (per stage: `prompt_reconstruction`, `classification`, `scoring`). Global settings: `output_base_dir`, `log_dir`, `state_dir`.
+            *   `datasets.yml`: List of dataset configs: `name`, `path_or_hf_id`, `format` (`jsonl`, `arrow`, `hf_dataset`, `text`, `csv`, `epub`), `type` (`A`, `B`, `C`), `max_items` (int or percentage string like "10%").
+            *   `rubric.yml`: List of metric objects, each with `name` and `description` (for prompts).
+        *   Implement a config loader (e.g., `dolphin-lit-rm/config/settings.py`) that loads these YAMLs and allows CLI overrides.
+        *   Create placeholder YAML files in `dolphin-lit-rm/config/` and `dolphin-lit-rm/config/prompts/scoring.jinja`.
+    3.  **Common Record Schema (`dolphin-lit-rm/utils/schema.py`)**:
+        *   Define the Pydantic model for the common record schema as specified in "3. Common record schema".
+        *   Implement a function to generate the deterministic `id` (e.g., `sha256(source_name + source_specific_id_or_hash_of_content + segment_offset_if_any)`).
+    4.  **Core Utilities (`dolphin-lit-rm/utils/`)**:
+        *   `io.py`:
+            *   Functions to read/write Hugging Face `datasets` (Arrow format).
+            *   Functions to stream records from various input formats (JSONL, text lines).
+        *   `hf_dataset_utils.py` (renamed from `hf_dataset.py` for clarity): Helpers for `datasets.map()` operations, batching.
+        *   `text_utils.py` (renamed from `text.py`): Text cleaning, token counting (e.g., using `tiktoken` or a HF tokenizer).
+        *   `llm_api_client.py`:
+            *   A robust client using `requests` for OpenAI-compatible APIs.
+            *   Handles auth, configurable retries with exponential backoff, timeouts.
+            *   Parses JSON responses, handles API errors.
+        *   `state_manager.py`:
+            *   Functions to check if an item ID has been processed for a given stage/dataset (e.g., using JSON files in `artifacts/state/` like `{stage}_{dataset_name}_processed_ids.jsonl`).
+            *   Function to mark an item ID as processed.
+    5.  **Basic CLI (`dolphin-lit-rm/cli.py`)**:
+        *   Set up `typer` app.
+        *   Define main command groups: `ingest`, `preprocess`, `classify`, `score`, `postprocess`.
+        *   Implement global CLI options for config files, output directories, etc., that override `run.yml`.
+    6.  **Logging**:
+        *   Configure `loguru` to write to `logs/{stage}.log` and console, with configurable levels.
+
+**Phase 1: Ingestion Stage**
+
+*   **Goal:** Implement ingestion for all three dataset shapes, normalizing them to the common schema.
+*   **Tasks:**
+    1.  **Ingester Interface/Base (`dolphin-lit-rm/ingestion/core.py`)**:
+        *   Define a base class or protocol for ingesters.
+        *   Common logic for iterating source data, applying `max_items`, normalizing to schema, and saving to `artifacts/raw/{dataset_name}.arrow`.
+        *   Integrate with `state_manager.py` to allow resumability at the raw item level (skip already ingested items if source hasn't changed).
+    2.  **Prompt+Assistant Ingester (`dolphin-lit-rm/ingestion/sharegpt.py`)**:
+        *   Handles JSONL ShareGPT format. Extracts last user prompt and assistant reply.
+        *   Sets `prompt_type="human"`.
+    3.  **Standalone Short Pieces Ingester (`dolphin-lit-rm/ingestion/standalone.py`)**:
+        *   Handles line-delimited text files, CSVs (configurable text column).
+        *   Sets `prompt=None`.
+    4.  **Long-form Documents Ingester (`dolphin-lit-rm/ingestion/longform.py`)**:
+        *   Handles plain text, ePub (using `ebooklib` + `BeautifulSoup4`).
+        *   PDF: Start with extracting text via `pypftools` or `pdfminer.six`; acknowledge potential quality issues.
+        *   Stores entire document content in `response` for later segmentation. Sets `meta.source_path`.
+    5.  **CLI for Ingestion**:
+        *   `dolphin-lit-rm ingest --dataset-config datasets.yml [--dataset-name <name> | --all-datasets]`
+        *   Reads `datasets.yml`, iterates through specified datasets, calls appropriate ingester.
+        *   Outputs to `artifacts/raw/{dataset_name}.arrow`.
+
+**Phase 2: Pre-filtering & Segmentation**
+
+*   **Goal:** Implement cheap pre-filters and document segmentation.
+*   **Tasks:**
+    1.  **Filtering Module (`dolphin-lit-rm/preprocessing/filter.py`)**:
+        *   Function `apply_filters_to_dataset(dataset_path, output_path, config)` operating streamingly or via `Dataset.map()`.
+        *   Length filter (token-based, min/max from `run.yml`).
+        *   Language ID filter (`fasttext`, threshold from `run.yml`).
+        *   Regex blacklist filter (patterns from `run.yml` or a separate file).
+        *   Deduplication using `sha1(response)` and an LMDB cache (path from `run.yml`).
+        *   Integrate with `state_manager.py` to skip already filtered records if re-run.
+    2.  **Segmentation Module (`dolphin-lit-rm/preprocessing/segment.py`)**:
+        *   Function `segment_type_c_dataset(dataset_path, output_path, config)`.
+        *   Only processes records identified as Type-C (or all if not distinguished).
+        *   Uses `spacy` for sentence-aware splitting.
+        *   Chunks sentences to `CTX_TOK - N` (N for prompt/overhead, configurable).
+        *   Optional overlap (configurable).
+        *   Each chunk becomes a new record, inheriting/updating metadata (`id`, `char_span`).
+        *   Non-Type-C records or short Type-C records pass through.
+    3.  **CLI for Preprocessing**:
+        *   `dolphin-lit-rm preprocess --input-dir artifacts/raw --output-dir-filtered artifacts/filtered --output-dir-segmented artifacts/segmented --stages filter,segment`
+        *   Processes datasets from input, applies selected stages sequentially.
+        *   Filter stage writes to `artifacts/filtered/{dataset_name}.arrow`.
+        *   Segment stage reads from `artifacts/filtered/{dataset_name}.arrow` and writes to `artifacts/segmented/{dataset_name}.arrow`.
+
+**Phase 3: Prompt Reconstruction**
+
+*   **Goal:** Fabricate prompts for records that lack them.
+*   **Tasks:**
+    1.  **Prompt Reconstruction Module (`dolphin-lit-rm/preprocessing/prompt_reconstruct.py`)**:
+        *   Function `reconstruct_prompts_for_dataset(dataset_path, output_path, config, llm_client)`.
+        *   Gatekeeper: `prompt is None`, `len(response)` ≤ `MAX_PROMPT_REC_TOK` (from `run.yml`).
+        *   Load prompt template (Jinja, e.g., `config/prompts/prompt_reconstruction.jinja`).
+        *   Use `llm_api_client.py` with settings for prompt reconstruction model (from `run.yml`).
+        *   Batch requests if LLM API supports it; otherwise, individual requests.
+        *   Post-process LLM output (strip, truncate).
+        *   Update `record["prompt"]`, `record["meta"]["prompt_type"]="reconstructed"`.
+        *   Integrate with `state_manager.py` (skip records already having a reconstructed prompt or any prompt).
+    2.  **CLI for Prompt Reconstruction**:
+        *   Can be part of `dolphin-lit-rm preprocess --stages prompt_reconstruct --input-dir artifacts/segmented --output-dir-reconstructed artifacts/reconstructed`.
+        *   Writes to `artifacts/reconstructed/{dataset_name}.arrow`.
+
+**Phase 4: Classification Pass**
+
+*   **Goal:** Assign genre and sub-genre labels.
+*   **Tasks:**
+    1.  **Taxonomy & Prompts**:
+        *   Create `config/genre_taxonomy.yml`.
+        *   Create Jinja prompt template for classification (e.g., `config/prompts/classification.jinja`).
+    2.  **Classifier Module (`dolphin-lit-rm/classification/classifier.py`)**:
+        *   Function `classify_dataset(dataset_path, output_path, config, llm_client)`.
+        *   Load taxonomy.
+        *   Implement zero-shot LLM classification:
+            *   Construct prompt with text and available labels.
+            *   Use `llm_api_client.py` with settings for classification model (from `run.yml`).
+            *   Parse LLM output. Apply confidence logic (if LLM says "unknown" or parsing fails, label "unknown").
+        *   (Placeholder for fine-tuned classifier option).
+        *   Update `record["class"]`.
+        *   Integrate with `state_manager.py` (skip records already classified).
+    3.  **CLI for Classification**:
+        *   `dolphin-lit-rm classify --input-dir artifacts/reconstructed --output-dir artifacts/classified`
+        *   Writes to `artifacts/classified/{dataset_name}.arrow`.
+
+**Phase 5: Rubric Scoring**
+
+*   **Goal:** Score texts on defined rubric metrics using the judge model.
+*   **Tasks:**
+    1.  **Rubric & Prompt Finalization**:
+        *   Ensure `config/rubric.yml` is complete.
+        *   Finalize `config/prompts/scoring.jinja` to support batching all metrics for one record into a single LLM call. The prompt should clearly ask for each score individually and provide a structured way for the LLM to respond.
+    2.  **Judging Engine (`dolphin-lit-rm/scoring/judge.py`)**:
+        *   Function `score_dataset(dataset_path, output_path, config, llm_client, rubric)`.
+        *   Load rubric.
+        *   Use `llm_api_client.py` with settings for judge model (Qwen-3-30B, from `run.yml`).
+        *   Implement batching strategy:
+            *   For each record, create one prompt asking for all metrics.
+            *   Send to LLM (`temperature=0`, `max_tokens` for all scores).
+            *   Carefully parse the LLM's single response to extract all scores (e.g., using regex keyed by metric names). If a score is unparsable, store as `null`.
+        *   Store scores in `record["scores"]`.
+        *   Integrate with `state_manager.py` (skip records already fully scored for the current rubric).
+    3.  **CLI for Scoring**:
+        *   `dolphin-lit-rm score --input-dir artifacts/classified --output-dir artifacts/scored`
+        *   Writes to `artifacts/scored/{dataset_name}.arrow` (or `shard_k.arrow` if outputting shards directly).
+
+**Phase 6: Post-processing & Final Export**
+
+*   **Goal:** Calibrate scores, filter, split, and prepare final datasets.
+*   **Tasks:**
+    1.  **Post-processing Module (`dolphin-lit-rm/postprocessing/pipeline.py`)**:
+        *   Function `run_postprocessing(input_dir, output_dir_final, config)`:
+            *   Load all scored datasets (e.g., `artifacts/scored/*.arrow`). Concatenate if needed.
+            *   **Calibration**: For each metric, calculate 5th/95th percentiles across the entire dataset (all sources combined) and rescale. Clamp to [0,1]. (Configurable on/off).
+            *   **Outlier/Missing Data Filtering**: Drop records with >X% missing metrics (configurable).
+            *   **Splitting**: Partition into train/val/test by stable hash of `record["id"]` (ratios from `run.yml`).
+        *   Write final datasets: `artifacts/final/dolphin-lit-rm_v0.{split}.arrow`.
+    2.  **CLI for Post-processing**:
+        *   `dolphin-lit-rm postprocess --input-dir artifacts/scored --output-dir-final artifacts/final`
+    3.  **Artifact Registry/Metadata (Initial)**:
+        *   A simple script (`scripts/generate_manifest.py`) that scans `artifacts/final` and `artifacts/raw` etc., and produces a `manifest.json` with file lists, record counts, and basic stats.
+
+**Phase 7: Orchestration, Documentation & Testing**
+
+*   **Goal:** Create run scripts, finalize documentation, and add tests.
+*   **Tasks:**
+    1.  **Shell Scripts (`scripts/`)**:
+        *   Create `run_ingest.sh`, `run_preprocess.sh` (combining filter, segment, reconstruct), `run_classify.sh`, `run_score.sh`, `run_postprocess.sh`.
+        *   Create `run_all.sh` to execute the entire pipeline.
+        *   These scripts will pass appropriate directory arguments and config files.
+    2.  **Refine CLI**:
+        *   Ensure all CLI options are well-documented (`--help`).
+        *   Test config overrides thoroughly.
+    3.  **Documentation (`README.md`, docstrings)**:
+        *   Comprehensive `README.md` covering setup, configuration of all YAMLs, and CLI usage for each stage.
+        *   Docstrings for all public modules, classes, and functions.
+    4.  **Testing**:
+        *   **Unit Tests**: For critical pure functions (parsing, schema validation, text utils, state management logic).
+        *   **Integration Tests**: Small example data for each stage, testing input/output flow and interaction with (mocked or real but cheap) LLM APIs.
+            *   E.g., a test for `ingestion` with a tiny JSONL.
+            *   A test for `scoring` with a few records and a mock LLM that returns predictable scores.
+        *   Use `pytest`.
+
+This phased approach allows for building and testing components iteratively. Each phase produces usable artifacts that can be inspected. The "further notes" have been incorporated throughout, especially regarding configuration, CLI, resumability, and the use of `requests`.
+
+Do you approve this plan, or would you like any adjustments or further details on specific parts?
+
+
+
+
+
+
+
+
+
+------------------
+
+
+
+
+
+
+
+
+
+
+
+for the longform documents ingester, don't worry about any epub/pdf parsing. just assume it's coming from the pile.
+
+note that the stages should be in this order:
+
+ingestion
+prefiltering & seg
+classification
+normalisation (to required quotas for each category)
+prompt reconstruction
+rubric scoring
+post processing
+
+Orchestration, Documentation & Testing -> not really a phase of the pipeline
+
+
+let's also make sure to build in resuming into the pipeline, with a --resume [run dir] param
+
+if a run dir isn't specified it should generate one automatically
+
+ok that's enough to get you started. output all the files now.

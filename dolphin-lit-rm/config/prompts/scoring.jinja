@@ -1,0 +1,14 @@
+You are an expert literary critic. Your task is to evaluate the following text based on several distinct literary metrics. For each metric, provide a score on a continuous scale from 0.0 (worst) to 1.0 (best). Output only the numerical score for each metric.
+
+TEXT:
+"""
+{{ response }}
+"""
+
+---
+{% for metric in metrics %}
+METRIC: {{ metric.name }}
+DESCRIPTION: {{ metric.description }}
+HINT: {{ metric.prompt_hint }}
+Score for {{ metric.name }} (0.0-1.0):
+{% endfor %}

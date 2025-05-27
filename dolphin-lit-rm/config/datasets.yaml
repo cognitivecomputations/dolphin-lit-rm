@@ -1,0 +1,39 @@
+# Configuration for input datasets
+# Each item defines a dataset to be ingested.
+
+datasets:
+  - name: "sharegpt_example"
+    # path_or_hf_id: "path/to/your/sharegpt_data.jsonl"
+    path_or_hf_id: "HeliosAbduction/ShareGPT-CN-ZH-TW-EN-TH-JA-KO" # Example HF dataset
+    format: "hf_dataset" # jsonl, arrow, hf_dataset, text, csv
+    type: "A" # Prompt+Assistant
+    # For hf_dataset, specify split and column names if not standard
+    hf_dataset_config:
+      split: "train" # Or "train[:10%]"
+      # Assuming ShareGPT-like structure, this will be handled by the ingester
+      # prompt_column: "conversations.from='human'" # Simplified, actual logic in ingester
+      # response_column: "conversations.from='assistant'" # Simplified
+    max_items: 1000 # Max items to ingest from this source (int or "10%")
+    # lang_filter: "en" # Optional: pre-filter by language during ingestion if known
+
+  - name: "reddit_stories_example"
+    path_or_hf_id: "path/to/your/reddit_stories.txt" # One story per line
+    format: "text"
+    type: "B" # Standalone short pieces
+    max_items: 500
+
+  - name: "longform_articles_example"
+    path_or_hf_id: "path/to/your/articles_dir/" # Directory of .txt files
+    format: "text_dir" # Special format for directory of text files
+    type: "C" # Long-form documents
+    max_items: 100 # Max number of files to process from this directory
+
+# Add more datasets as needed
+# - name: "another_dataset"
+#   path_or_hf_id: "user/my_custom_dataset_on_hf"
+#   format: "hf_dataset"
+#   type: "B"
+#   hf_dataset_config:
+#     split: "train"
+#     text_column: "text_content" # If it's a dataset of standalone texts
+#   max_items: "5%"
