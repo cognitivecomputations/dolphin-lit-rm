@@ -6,6 +6,7 @@ from loguru import logger
 from tqdm import tqdm
 import fasttext # Requires model: lid.176.bin
 import lmdb
+import hashlib
 
 from dolphin_lit_rm.core_configs import AppConfig, FilterConfig
 from dolphin_lit_rm.utils import text_utils, file_io, state_manager

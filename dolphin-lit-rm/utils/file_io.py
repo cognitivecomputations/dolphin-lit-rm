@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-from typing import List, Dict, Any, Iterator, Union
+from typing import List, Dict, Any, Iterator, Union, Optional
 import pyarrow as pa
 from datasets import Dataset, DatasetDict, load_dataset, Features, Value
 from loguru import logger

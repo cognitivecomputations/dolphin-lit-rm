@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-from typing import Set, Optional
+from typing import Set, Optional, List, Dict
 from loguru import logger
 
 class StateManager:

@@ -1,5 +1,6 @@
-from typing import Dict, List, Optional, Any, Literal
+from typing import Dict, List, Optional, Any, Literal, Union
 from pydantic import BaseModel, Field, FilePath, DirectoryPath
+from pathlib import Path
 
 # --- Pydantic models for configuration files ---
 
