@@ -14,7 +14,12 @@ This project implements a data pipeline to process various text corpora into a f
     cd dolphin-lit-rm
     ```
 
-2.  **Install dependencies using Poetry:**
+2.  **Install dependencies:**
+    - Using pip:
+    ```bash
+    pip install -r requirements.txt
+    ```
+    OR using poetry:
     ```bash
     poetry install
     ```
