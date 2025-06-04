@@ -42,6 +42,7 @@ def classify_text_zero_shot(
     # Determine genre list for the prompt
     # This could come from class_config.genre_taxonomy_file or a default
     top_genres_for_prompt = getattr(class_config, "top_level_genres_for_prompt", DEFAULT_TOP_LEVEL_GENRES)
+    print(top_genres_for_prompt)
 
     try:
         # Truncate text if too long for classification prompt context

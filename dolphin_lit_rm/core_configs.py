@@ -39,8 +39,7 @@ class ClassificationConfig(BaseModel):
     model_name: Optional[str] = None # Specific model for this task
     confidence_threshold: Optional[float] = None # If applicable
     llm_settings: Optional[LLMSettings] = None # Overrides default
-    # Example: if using a fixed list of genres for zero-shot
-    # top_level_genres_for_prompt: List[str] = ["fiction", "news", "essay", "poetry", "dialogue", "technical", "marketing", "academic", "script", "other"]
+    top_level_genres_for_prompt: List[str] = Field(default_factory=list)
     genre_taxonomy_file: Optional[FilePath] = None # Path to a more detailed taxonomy YAML
 
 class NormalizationQuotaConfig(BaseModel):

@@ -1,14 +1,24 @@
-You are an expert literary critic. Your task is to evaluate the following text based on several distinct literary metrics. For each metric, provide a score on a continuous scale from 0.0 (worst) to 1.0 (best). Output only the numerical score for each metric.
+You are an expert literary critic.  
+Evaluate the text against each metric and **return a single JSON object** whose
+property names are the *metric names* shown below and whose values are the
+numeric scores (0.0 – 1.0).  
+No prose, no markdown – just the JSON.
 
 TEXT:
 """
 {{ response }}
 """
 
----
+Your task is to score the above text on the following criteria on a 0-1 scale:
 {% for metric in metrics %}
-METRIC: {{ metric.name }}
-DESCRIPTION: {{ metric.description }}
-HINT: {{ metric.prompt_hint }}
-Score for {{ metric.name }} (0.0-1.0):
+{{ metric.name }} — {{ metric.description }} (Hint: {{ metric.prompt_hint }})
 {% endfor %}
+
+---  
+Return **only** a JSON object like:
+
+{
+{% for metric in metrics %}
+  "{{ metric.name }}": <float between 0.0 and 1.0>{% if not loop.last %},{% endif %}
+{% endfor %}
+}

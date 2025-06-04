@@ -9,10 +9,11 @@ default_log_level: "INFO"
 # API settings (can be overridden per stage)
 # These are examples; use environment variables for sensitive keys in production.
 default_llm_settings:
-  api_base_url: "http://localhost:8000/v1" # OpenAI-compatible endpoint
-  api_key: "YOUR_API_KEY_OR_NONE_IF_LOCAL" # or use "ENV:OPENAI_API_KEY"
+  api_base_url: "https://openrouter.ai/api/v1" # OpenAI-compatible endpoint
+  api_key: "sk-" # or use "ENV:OPENAI_API_KEY"
   timeout_seconds: 60
   max_retries: 3
+  max_concurrent_requests: 1
 
 # Stage-specific configurations
 ingestion:
@@ -21,8 +22,8 @@ ingestion:
 
 preprocessing:
   filter:
-    min_response_tokens: 10
-    max_response_tokens: 4000
+    min_response_tokens: 200
+    max_response_tokens: 8000
     lang_id_threshold: 0.9 # for English
     # blacklist_regex_patterns: # List of regex patterns
     #   - "(?i)lorem ipsum"
@@ -32,18 +33,109 @@ preprocessing:
     max_chunk_tokens: 3800 # Target N-2k, e.g., 6000 - 2000
     sentence_overlap_count: 1 # Number of sentences to overlap
   prompt_reconstruction:
-    model_name: "NousResearch/Hermes-2-Pro-Mistral-7B" # Example
+    model_name: "qwen/qwen3-30b-a3b" # Example
     max_response_tokens_for_reconstruction: 1024
     reconstructed_prompt_max_chars: 256
     # llm_settings can override default_llm_settings
-    # llm_settings:
-    #   api_base_url: ...
-    #   model_name: ...
+    llm_settings:
+      max_concurrent_requests: 500
 
 classification:
-  model_name: "Qwen/Qwen1.5-7B-Chat" # Example for zero-shot
-  confidence_threshold: 0.7 # If applicable to the method
-  # llm_settings: ...
+  model_name: "qwen/qwen3-30b-a3b" # Example for zero-shot
+  llm_settings:
+    max_concurrent_requests: 500
+  top_level_genres_for_prompt:
+    - literary_novel
+    - fantasy_novel
+    - science_fiction_novel
+    - horror_novel
+    - thriller_suspense_novel
+    - mystery_detective_novel
+    - romance_novel
+    - historical_fiction_novel
+    - young_adult_novel
+    - middle_grade_novel
+    - shortform_story_literary
+    - shortform_story_fantasy
+    - shortform_story_science_fiction
+    - shortform_story_horror
+    - shortform_story_thriller
+    - shortform_story_mystery
+    - shortform_story_crime
+    - shortform_story_romance
+    - shortform_story_historical
+    - shortform_story_humor
+    - shortform_story_young_adult
+    - shortform_story_other
+    - flash_fiction
+    - vignette
+    - song_lyrics
+    - narrative_poetry
+    - dramatic_poetry
+    - experimental_poetry
+    - haiku_tanka
+    - spoken_word_poetry
+    - stage_play_script
+    - screenplay
+    - teleplay
+    - radio_play_script
+    - musical_libretto
+    - comic_book_script
+    - graphic_novel_script
+    - japanese_manga
+    - webcomic_script
+    - videogame_script
+    - interactive_fiction
+    - rpg_transcript
+    - rpg_transcript_erotic
+    - rpg_scenario
+    - academic_article
+    - academic_book
+    - dissertation_thesis
+    - conference_paper
+    - literature_review
+    - research_proposal
+    - textbook_chapter
+    - news_report
+    - investigative_journalism
+    - feature_article
+    - opinion_piece
+    - editorial
+    - column
+    - profile_interview
+    - review_article
+    - blog_post
+    - memoir
+    - biography
+    - personal_essay
+    - travel_writing
+    - nature_writing
+    - food_writing
+    - humor_nonfiction
+    - diary_entry
+    - political_speech
+    - advocacy_paper
+    - grant_proposal
+    - marketing_copy
+    - business_report
+    - technical_manual
+    - how_to_guide
+    - popular_science
+    - reference_entry
+    - faq_document
+    - legal_document
+    - medical_info
+    - case_study
+    - social_media_post
+    - forum_post
+    - product_description
+    - user_review
+    - website_copy
+    - email_newsletter
+    - erotic_fiction
+    - erotic_poetry
+    - bdsm_scene_script
+    - erotic_rp_log
 
 normalization:
   # Quotas applied after classification, across the combined dataset.
@@ -51,20 +143,22 @@ normalization:
   # 'default' applies to classes not explicitly listed.
   quotas:
     class.top:
-      "fiction": 150000
-      "news": 100000
-      "essay": 80000
-      "poetry": 50000
-      "dialogue": 70000
-      "technical": 60000
-      "marketing": 40000
-      "unknown": 20000 # Max for items classified as unknown
-    default_quota_per_class: 30000 # Fallback if a class.top is not listed above
+      "fiction": 100
+      "news": 100
+      "essay": 100
+      "poetry": 100
+      "dialogue": 100
+      "technical": 100
+      "marketing": 100
+      "unknown": 100 # Max for items classified as unknown
+    default_quota_per_class:
+      "default": 100  # or whatever default value you want
 
 scoring:
-  judge_model_name: "Qwen/Qwen1.5-32B-Chat" # Example, Qwen-3-30B-Instruct
+  model_name: "qwen/qwen3-32b" # Example, Qwen-3-30B-Instruct
   max_tokens_per_metric_response: 8 # For parsing "0.xx"
-  # llm_settings: ...
+  llm_settings:
+    max_concurrent_requests: 500
 
 postprocessing:
   calibration:
@@ -76,7 +170,7 @@ postprocessing:
     train: 0.90
     validation: 0.05
     test: 0.05
-  final_dataset_name_prefix: "dolphin_lit_rm_v0.1"
+  final_dataset_name_prefix: "exp01"
 
 # Tokenizer used for length checks, segmentation, etc.
 # Can be a Hugging Face tokenizer name or path.

@@ -22,55 +22,83 @@ except FileNotFoundError:
 
 
 def parse_scores_from_llm_response(
-    llm_response: str, 
-    metrics: List[MetricConfig]
+    llm_response: str,
+    metrics: List[MetricConfig],
 ) -> Dict[str, Optional[float]]:
     """
-    Parses multiple scores from a single LLM response.
-    Assumes LLM output format like:
-    Score for metric_name_1 (0.0-1.0):
-    0.75
-    Score for metric_name_2 (0.0-1.0):
-    0.60
+    Parse a JSON object produced by the judge LLM and return a mapping from
+    metric name → score.
+
+    The LLM **must** return something that can be parsed by `json.loads`,
+    possibly wrapped in Markdown fences.  If parsing fails, the function logs
+    the error and returns a dict whose values are all `None`.
+
+    Parameters
+    ----------
+    llm_response : str
+        Raw text returned by the judge model.
+    metrics : list[MetricConfig]
+        Metric definitions loaded from `rubric.yaml`.
+
+    Returns
+    -------
+    dict[str, Optional[float]]
+        Keys are the metric names from the rubric; values are floats in the
+        range [0.0 – 1.0] or `None` when a score could not be extracted.
     """
-    parsed_scores: Dict[str, Optional[float]] = {metric.name: None for metric in metrics}
+    import json
+    import re
+
+    metric_names = [m.name for m in metrics]
+    parsed_scores: Dict[str, Optional[float]] = {k: None for k in metric_names}
+
     if not llm_response:
+        logger.warning("LLM response is empty – all scores set to None.")
         return parsed_scores
 
-    # Iterate through metrics and try to find their score in the text
-    # This regex is an example and might need to be very robust
-    for metric in metrics:
-        # Regex to find "Score for <Metric Name> (0.0-1.0):\s*([0-9.]+)"
-        # Escape metric name for regex, handle potential case differences if necessary
-        pattern = re.compile(
-            rf"Score for {re.escape(metric.name)} \(0\.0-1\.0\):\s*([0-1]\.\d+|[01])", 
-            re.IGNORECASE | re.MULTILINE
+    # -- strip possible Markdown code fences --------------------------------
+    cleaned = llm_response.strip()
+    fence_pattern = re.compile(r"```(?:json)?\s*([\s\S]*?)\s*```", re.IGNORECASE)
+    fence_match = fence_pattern.search(cleaned)
+    if fence_match:
+        cleaned = fence_match.group(1)
+
+    # -- isolate first {...} pair if extra prose remains --------------------
+    first_brace = cleaned.find("{")
+    last_brace = cleaned.rfind("}")
+    if first_brace == -1 or last_brace == -1 or last_brace <= first_brace:
+        logger.error(
+            "Could not locate a JSON object in the LLM response. "
+            "Returning None for all metrics.\nResponse: {}", cleaned[:300]
         )
-        match = pattern.search(llm_response)
-        if match:
-            try:
-                score_str = match.group(1)
-                score_float = float(score_str)
-                # Clamp score to [0,1] just in case LLM hallucinates outside range
-                parsed_scores[metric.name] = max(0.0, min(1.0, score_float))
-            except ValueError:
-                logger.warning(f"Could not parse score for metric '{metric.name}' from '{score_str}'.")
-        else:
-            logger.warning(f"Could not find score for metric '{metric.name}' in LLM response.")
-            # Attempt a simpler parse if the above fails: find metric name then a number
-            # This is a fallback and less reliable
-            simple_pattern = re.compile(rf"{re.escape(metric.name)}[^0-9]*([0-1]\.\d+|[01])", re.IGNORECASE)
-            simple_match = simple_pattern.search(llm_response)
-            if simple_match:
-                try:
-                    score_str = simple_match.group(1)
-                    score_float = float(score_str)
-                    parsed_scores[metric.name] = max(0.0, min(1.0, score_float))
-                    logger.info(f"Used fallback parsing for metric '{metric.name}', got: {score_float}")
-                except ValueError:
-                    pass # Already logged primary failure
+        return parsed_scores
+
+    json_str = cleaned[first_brace : last_brace + 1]
+
+    # -- parse JSON ---------------------------------------------------------
+    try:
+        data = json.loads(json_str)
+    except json.JSONDecodeError as exc:
+        logger.error(
+            "JSON decoding failed: {}. Response snippet: {}", exc, cleaned[:300]
+        )
+        return parsed_scores
+
+    # -- extract & clamp scores --------------------------------------------
+    for name in metric_names:
+        val = data.get(name)
+        if isinstance(val, (int, float)):
+            parsed_scores[name] = max(0.0, min(1.0, float(val)))
+        elif val is not None:
+            logger.warning(
+                "Metric '{}' present in JSON but not numeric (value: {}). "
+                "Setting it to None.",
+                name,
+                val,
+            )
 
     return parsed_scores
+
 
 
 def score_record_with_judge(
