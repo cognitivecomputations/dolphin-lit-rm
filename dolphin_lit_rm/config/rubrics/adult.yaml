@@ -1,0 +1,41 @@
+name: adult
+metrics:
+  - name: "consensual_dynamics"
+    description: "Rate the text for Consensual Dynamics and Agency. This refers to whether all parties are clearly willing participants with equal power and genuine enthusiasm rather than coercion or dubious consent."
+    prompt_hint: "Evaluate how clearly consent and agency are established."
+  
+  - name: "psychological_realism"
+    description: "Rate the text for Psychological Realism in Intimate Contexts. This refers to whether characters maintain their personality and complexity during intimate scenes rather than becoming generic."
+    prompt_hint: "Evaluate character consistency in intimate situations."
+  
+  - name: "sensual_specificity"
+    description: "Rate the text for Sensual Specificity Without Clinical Detachment. This refers to whether physical sensations are described vividly and emotionally rather than mechanically or pornographically."
+    prompt_hint: "Evaluate the balance between sensual detail and emotional connection."
+  
+  - name: "emotional_complexity"
+    description: "Rate the text for Emotional Complexity Beyond Physical. This refers to whether the text explores feelings, vulnerability, and connection alongside desire rather than focusing solely on physical acts."
+    prompt_hint: "Evaluate the emotional depth beyond physical description."
+  
+  - name: "creative_scenarios"
+    description: "Rate the text for Creative Scenario Development. This refers to whether the text creates unique contexts and situations rather than relying on generic or clichéd setups."
+    prompt_hint: "Evaluate the originality of scenarios and contexts."
+  
+  - name: "tension_building"
+    description: "Rate the text for Tension Building and Pacing. This refers to whether the text creates anticipation and builds naturally rather than rushing to explicit content or dragging unnecessarily."
+    prompt_hint: "Evaluate how well tension and anticipation are built."
+  
+  - name: "character_driven"
+    description: "Rate the text for Character-Driven Rather Than Act-Focused. This refers to whether intimacy emerges from who characters are rather than being a series of generic physical descriptions."
+    prompt_hint: "Evaluate whether intimacy flows from character rather than formula."
+  
+  - name: "avoids_stereotypes"
+    description: "Rate the text for Avoiding Harmful Stereotypes. This refers to whether the text represents diverse experiences respectfully rather than reinforcing problematic tropes or stereotypes."
+    prompt_hint: "Evaluate how well the text avoids harmful stereotypes."
+  
+  - name: "narrative_integration"
+    description: "Rate the text for Narrative Integration. This refers to whether intimate scenes advance plot or character development rather than being gratuitous insertions."
+    prompt_hint: "Evaluate how well intimate scenes serve the larger narrative."
+  
+  - name: "linguistic_variety"
+    description: "Rate the text for Linguistic Variety and Freshness. This refers to whether the text finds creative but appropriate language rather than relying on repetitive euphemisms or crude terminology."
+    prompt_hint: "Evaluate the creativity and appropriateness of language choices."

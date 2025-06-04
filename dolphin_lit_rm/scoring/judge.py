@@ -6,6 +6,7 @@ from loguru import logger
 from tqdm import tqdm
 from jinja2 import Template
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import fnmatch
 
 from dolphin_lit_rm.core_configs import AppConfig, ScoringConfig, RubricConfig, MetricConfig
 from dolphin_lit_rm.utils import text_utils, file_io, state_manager, llm_api_client
@@ -147,131 +148,139 @@ def score_record_with_judge(
 
 def run_scoring_stage(app_config: AppConfig):
     """
-    Parallelised, drop-in replacement for the original rubric-scoring stage.
-    Concurrency is controlled by
-    `app_config.run.get_llm_settings_for_stage("scoring").max_concurrent_requests`
-    (defaults to 4 threads when unspecified).
+    Parallel rubric-aware scoring stage.
+
+    Concurrency is limited by
+    app_config.run.get_llm_settings_for_stage("scoring").max_concurrent_requests
+    (defaults to 4).
     """
     logger.info("--- Starting Rubric Scoring Stage ---")
 
-    # -------------------------------------------------- template & rubric guards
+    # ── guard: template present ──────────────────────────────────────────
     if not SCORING_TEMPLATE:
         logger.error("Scoring template not loaded. Skipping stage.")
-        input_dir = Path(app_config.run.artifacts_dir) / "reconstructed"
-        output_dir = Path(app_config.run.artifacts_dir) / "scored"
-        output_dir.mkdir(parents=True, exist_ok=True)
-        for dataset_file in input_dir.glob(f"*.{app_config.run.artifact_ext}"):
-            target = output_dir / dataset_file.name
+        src_dir = Path(app_config.run.artifacts_dir) / "reconstructed"
+        dst_dir = Path(app_config.run.artifacts_dir) / "scored"
+        dst_dir.mkdir(parents=True, exist_ok=True)
+        for fp in src_dir.glob(f"*.{app_config.run.artifact_ext}"):
+            target = dst_dir / fp.name
             if not target.exists():
                 import shutil
-                shutil.copy(dataset_file, target)
-            logger.warning(f"Copied {dataset_file.name} to scored dir as template is missing.")
+                shutil.copy(fp, target)
+            logger.warning(f"Copied {fp.name} to scored dir because template was missing.")
         return
 
-    scoring_cfg   = app_config.run.scoring
-    rubric_metrics = app_config.rubric.metrics
-    if not rubric_metrics:
-        logger.error("No metrics defined in rubric. Skipping scoring stage.")
-        return
-
+    # ── LLM settings ------------------------------------------------------
     llm_settings = app_config.run.get_llm_settings_for_stage("scoring")
     if not llm_settings.api_base_url or not llm_settings.model_name:
         logger.error("API base URL or model name for scoring not configured. Skipping stage.")
         return
-
-    max_workers = llm_settings.max_concurrent_requests or 4
 
     llm_client = llm_api_client.LLMAPIClient(
         api_base_url       = llm_settings.api_base_url,
         api_key            = llm_settings.api_key,
         default_model_name = llm_settings.model_name,
         timeout_seconds    = llm_settings.timeout_seconds or 120,
-        max_retries        = llm_settings.max_retries  or 2,
+        max_retries        = llm_settings.max_retries or 2,
     )
+    max_workers = llm_settings.max_concurrent_requests or 4
 
-    # -------------------------------------------------- dirs & files
+    # ── rubrics and routing ----------------------------------------------
+    rubrics: dict[str, RubricConfig] = app_config.rubrics  # RootModel acts like dict
+    default_rubric = rubrics.get("default") or next(iter(rubrics))
+    if not default_rubric.metrics:
+        logger.error("No metrics defined in any rubric. Skipping scoring stage.")
+        return
+
+    routing_rules = app_config.run.model_dump().get("rubric_mapping", {})
+
+    def _select_rubric(class_label: str) -> str:
+        for pattern, name in routing_rules.items():
+            if pattern == "*" or fnmatch.fnmatch(class_label, pattern):
+                return name
+        return "default"
+
+    # ── I/O paths ---------------------------------------------------------
     input_dir  = Path(app_config.run.artifacts_dir) / "reconstructed"
     output_dir = Path(app_config.run.artifacts_dir) / "scored"
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    reconstructed_files = list(input_dir.glob(f"*_reconstructed.{app_config.run.artifact_ext}"))
-    if not reconstructed_files:
+    recon_files = list(input_dir.glob(f"*_reconstructed.{app_config.run.artifact_ext}"))
+    if not recon_files:
         logger.warning(f"No reconstructed files found in {input_dir}. Skipping scoring.")
         return
 
-    # -------------------------------------------------- dataset loop
-    for dataset_file in reconstructed_files:
-        base_name   = dataset_file.stem.replace("_reconstructed", "")
+    # ── per-file processing ----------------------------------------------
+    for file_path in recon_files:
+        base_name   = file_path.stem.replace("_reconstructed", "")
         output_file = output_dir / f"{base_name}_scored.{app_config.run.artifact_ext}"
 
-        logger.info(f"Scoring dataset: {dataset_file.name}")
+        logger.info(f"Scoring dataset: {file_path.name}")
 
         if output_file.exists() and not getattr(app_config, "force_scoring", False):
             logger.info(f"{output_file} already exists. Skipping.")
             continue
 
-        current_dataset = file_io.load_records(dataset_file)
-        if not current_dataset or len(current_dataset) == 0:
-            logger.warning(f"No records in {dataset_file}. Skipping.")
+        ds = file_io.load_records(file_path)
+        if not ds or len(ds) == 0:
+            logger.warning(f"No records in {file_path}. Skipping.")
             file_io.save_records([], output_file)
             continue
 
-        processed_ids = app_config.state_manager.get_processed_ids("scoring", base_name)
-        records       = current_dataset.to_list()
+        records       = ds.to_list()
         id_to_index   = {rec["id"]: idx for idx, rec in enumerate(records)}
+        processed_ids = app_config.state_manager.get_processed_ids("scoring", base_name)
 
-        # ---------------- identify which need scoring ------------------------
-        def _needs_scoring(rec_dict):
+        # ---------- queue selection --------------------------------------
+        def _needs_scoring(rec):
             if getattr(app_config, "force_scoring", False):
                 return True
-            if rec_dict["id"] in processed_ids:
-                # verify all metrics present
-                scores = rec_dict.get("scores") or {}
-                return any(scores.get(m.name) is None for m in rubric_metrics)
-            return True
+            if rec["id"] in processed_ids:
+                return False
+            return not bool(rec.get("scores"))  # score dict missing or empty
 
         to_score = [rec for rec in records if _needs_scoring(rec)]
-
         logger.info(f"{len(to_score)} / {len(records)} records require scoring.")
 
-        # ---------------- worker fn ------------------------------------------
+        # ---------- worker ------------------------------------------------
         def _score(rec_dict: dict) -> dict:
             rec_dict.setdefault("scores", {})
+            class_label = (rec_dict.get("classification") or {}).get("top", "unknown")
+            rubric_name = _select_rubric(class_label)
+            rubric_cfg  = rubrics.get(rubric_name, default_rubric)
 
             scores = score_record_with_judge(
                 rec_dict,
-                scoring_cfg,
-                rubric_metrics,
+                app_config.run.scoring,
+                rubric_cfg.metrics,
                 llm_client,
             )
-            rec_dict["scores"].update(scores)
+            for metric_name, val in scores.items():
+                rec_dict["scores"][f"{rubric_name}.{metric_name}"] = val
             return rec_dict
 
-        # ---------------- parallel execution ---------------------------------
+        # ---------- parallel execution -----------------------------------
         newly_scored_ids = []
         if to_score:
             with ThreadPoolExecutor(max_workers=max_workers) as pool:
                 futures = {pool.submit(_score, rec): rec["id"] for rec in to_score}
-                for fut in tqdm(
-                    as_completed(futures),
-                    total=len(futures),
-                    desc=f"Scoring {dataset_file.name}",
-                    unit="records",
-                ):
+                for fut in tqdm(as_completed(futures),
+                                total=len(futures),
+                                desc=f"Scoring {file_path.name}",
+                                unit="records"):
                     rec_id = futures[fut]
                     try:
-                        updated_rec = fut.result()
-                    except Exception as e:
-                        logger.error(f"Scoring failed for record {rec_id}: {e}")
-                        continue
-                    records[id_to_index[rec_id]] = updated_rec
-                    newly_scored_ids.append(rec_id)
+                        updated = fut.result()
+                        records[id_to_index[rec_id]] = updated
+                        newly_scored_ids.append(rec_id)
+                    except Exception as exc:
+                        logger.error(f"Scoring failed for record {rec_id}: {exc}")
 
-        # ---------------- state manager & save -------------------------------
+        # ---------- persist ----------------------------------------------
         if newly_scored_ids:
             app_config.state_manager.add_processed_ids_batch(newly_scored_ids, "scoring", base_name)
 
         file_io.save_records(records, output_file)
-        logger.info(f"Finished scoring {dataset_file.name}: wrote {len(records)} records.")
+        logger.info(f"Finished scoring {file_path.name}: wrote {len(records)} records.")
 
     logger.info("--- Rubric Scoring Stage Completed ---")

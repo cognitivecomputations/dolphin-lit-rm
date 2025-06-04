@@ -1,0 +1,41 @@
+name: narrative_creative
+metrics:
+  - name: "character_authenticity"
+    description: "Rate the text for Character Authenticity and Psychological Depth. This refers to whether characters feel like real people with believable motivations, flaws, and internal consistency, rather than cardboard cutouts or plot devices."
+    prompt_hint: "Evaluate how real and psychologically complex the characters feel."
+  
+  - name: "original_premise"
+    description: "Rate the text for Original Premise and Surprising Execution. This refers to whether the story avoids predictable plots and tired tropes, offering fresh perspectives or unexpected turns that genuinely surprise the reader."
+    prompt_hint: "Evaluate how fresh and unpredictable the story feels."
+  
+  - name: "prose_precision"
+    description: "Rate the text for Precise and Evocative Prose. This refers to whether every word serves a purpose and descriptions create vivid mental images without purple prose, overwriting, or unnecessary verbosity."
+    prompt_hint: "Evaluate the efficiency and vividness of the prose style."
+  
+  - name: "emotional_resonance"
+    description: "Rate the text for Emotional Resonance Without Manipulation. This refers to whether the story earns emotional responses through authentic character development rather than cheap tricks, sentimentality, or emotional button-pushing."
+    prompt_hint: "Evaluate whether emotions feel earned rather than manipulated."
+  
+  - name: "structural_coherence"
+    description: "Rate the text for Structural Coherence and Pacing. This refers to whether events flow logically, tension builds and releases appropriately, and there are no rushed or dragging sections that harm the reading experience."
+    prompt_hint: "Evaluate the story's structure and pacing effectiveness."
+  
+  - name: "distinctive_voice"
+    description: "Rate the text for Distinctive Voice and Style. This refers to whether the narrative voice feels unique and purposeful rather than generic or imitative, with a clear authorial presence."
+    prompt_hint: "Evaluate how unique and purposeful the narrative voice is."
+  
+  - name: "thematic_depth"
+    description: "Rate the text for Subtext and Thematic Depth. This refers to whether the story explores meaningful themes through action and implication rather than explicit moralizing or heavy-handed message delivery."
+    prompt_hint: "Evaluate the subtlety and depth of thematic exploration."
+  
+  - name: "sensory_atmosphere"
+    description: "Rate the text for Sensory Detail and Atmosphere. This refers to whether the story creates immersive settings through specific, well-chosen details rather than generic or clichéd descriptions."
+    prompt_hint: "Evaluate how vividly and specifically the world is realized."
+  
+  - name: "natural_dialogue"
+    description: "Rate the text for Natural Dialogue that Reveals Character. This refers to whether conversations sound authentic while advancing plot and revealing personality, avoiding stilted or purely functional exchanges."
+    prompt_hint: "Evaluate how natural and character-revealing the dialogue is."
+  
+  - name: "earned_endings"
+    description: "Rate the text for Earned Endings and Transformations. This refers to whether character changes and resolutions feel inevitable given what came before, rather than forced or unearned."
+    prompt_hint: "Evaluate whether the ending and character changes feel earned."

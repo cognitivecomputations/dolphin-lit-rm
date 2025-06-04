@@ -1,0 +1,41 @@
+name: professional
+metrics:
+  - name: "audience_appropriate"
+    description: "Rate the text for Audience-Appropriate Tone and Register. This refers to whether language matches professional context and reader expectations without being unnecessarily formal or casual."
+    prompt_hint: "Evaluate how well the tone matches the professional context."
+  
+  - name: "actionable_specificity"
+    description: "Rate the text for Actionable Specificity. This refers to whether the text provides concrete recommendations or information rather than vague generalizations or platitudes."
+    prompt_hint: "Evaluate how specific and actionable the content is."
+  
+  - name: "persuasive_logic"
+    description: "Rate the text for Persuasive Without Manipulation. This refers to whether the text builds a compelling case through logic and evidence rather than emotional tricks or misleading rhetoric."
+    prompt_hint: "Evaluate the ethical strength of persuasive elements."
+  
+  - name: "efficiency_concision"
+    description: "Rate the text for Efficiency and Concision. This refers to whether the text conveys maximum information in minimum words without padding, redundancy, or unnecessary complexity."
+    prompt_hint: "Evaluate how efficiently information is conveyed."
+  
+  - name: "strategic_structure"
+    description: "Rate the text for Strategic Structure and Flow. This refers to whether information is organized for maximum impact and comprehension, with clear hierarchy and progression."
+    prompt_hint: "Evaluate the strategic effectiveness of organization."
+  
+  - name: "credibility_indicators"
+    description: "Rate the text for Credibility Indicators. This refers to whether the text demonstrates expertise through precise terminology and industry awareness without jargon overload."
+    prompt_hint: "Evaluate how credibly expertise is demonstrated."
+  
+  - name: "visual_formatting"
+    description: "Rate the text for Visual and Formatting Effectiveness. This refers to whether the text uses headings, bullets, white space, and other formatting to enhance readability and comprehension."
+    prompt_hint: "Evaluate the effectiveness of visual presentation."
+  
+  - name: "risk_awareness"
+    description: "Rate the text for Risk Awareness and Mitigation. This refers to whether the text acknowledges potential challenges and provides solutions rather than presenting only optimistic scenarios."
+    prompt_hint: "Evaluate how well risks are acknowledged and addressed."
+  
+  - name: "measurable_outcomes"
+    description: "Rate the text for Measurable Outcomes Focus. This refers to whether the text emphasizes concrete results and success metrics rather than vague aspirations."
+    prompt_hint: "Evaluate the focus on measurable results."
+  
+  - name: "call_to_action"
+    description: "Rate the text for Call-to-Action Clarity. This refers to whether next steps are made explicit and achievable rather than vague or overwhelming."
+    prompt_hint: "Evaluate how clear and actionable the next steps are."

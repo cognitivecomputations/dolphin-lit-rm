@@ -172,68 +172,84 @@ def split_dataset(
 
 
 def run_postprocessing_stage(app_config: AppConfig):
+    """
+    Final stage:
+
+    1.  Optionally calibrate every metric (5–95 pct → 0–1).
+    2.  Drop records that have fewer than the configured fraction of
+        *any* score values.
+    3.  Deterministically split into train/val/test.
+    4.  Save each split to artifacts/final/.
+    """
     logger.info("--- Starting Post-processing Stage ---")
-    post_config = app_config.run.postprocessing
-    rubric_config = app_config.rubric
-    
-    input_dir = Path(app_config.run.artifacts_dir) / "scored"
+    post_cfg   = app_config.run.postprocessing
+    rubrics    = app_config.rubrics              # mapping name → RubricConfig
+
+    # ------------------------------------------------------------------ I/O
+    input_dir  = Path(app_config.run.artifacts_dir) / "scored"
     output_dir = Path(app_config.run.artifacts_dir) / "final"
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # This stage expects one primary scored file (e.g., all_sources_normalized_scored.parquet)
     scored_files = list(input_dir.glob(f"*_scored.{app_config.run.artifact_ext}"))
     if not scored_files:
-        logger.warning(f"No scored files found in {input_dir} (expected '*_scored.{app_config.run.artifact_ext}'). Skipping post-processing.")
-        return
-    
-    if len(scored_files) > 1:
-        logger.warning(f"Multiple scored files found: {scored_files}. Concatenating them for post-processing.")
-        all_scored_datasets = [file_io.load_records(f) for f in scored_files if f.stat().st_size > 0]
-        if not all_scored_datasets:
-            logger.error("No data in scored files after loading. Skipping post-processing.")
-            return
-        try:
-            combined_scored_dataset = concatenate_datasets(all_scored_datasets)
-        except Exception as e:
-            logger.error(f"Failed to concatenate scored datasets: {e}. Processing first file only: {scored_files[0]}")
-            combined_scored_dataset = file_io.load_records(scored_files[0])
-    elif scored_files:
-        combined_scored_dataset = file_io.load_records(scored_files[0])
-    else: # Should be caught by the first check
+        logger.warning(f"No scored files found in {input_dir}. Skipping post-processing.")
         return
 
-    if not combined_scored_dataset or len(combined_scored_dataset) == 0:
-        logger.warning("No records in combined scored dataset. Skipping post-processing.")
+    if len(scored_files) == 1:
+        ds_combined = file_io.load_records(scored_files[0])
+    else:
+        ds_parts = [file_io.load_records(fp) for fp in scored_files if fp.stat().st_size > 0]
+        ds_combined = concatenate_datasets(ds_parts) if ds_parts else None
+
+    if not ds_combined or len(ds_combined) == 0:
+        logger.warning("No data to post-process. Exiting.")
         return
 
-    logger.info(f"Loaded {len(combined_scored_dataset)} records for post-processing.")
-    
-    # Convert to list of dicts for easier manipulation
-    records_list = combined_scored_dataset.to_list()
-    metric_dicts = [m.model_dump() for m in rubric_config.metrics]
+    records = ds_combined.to_list()
+    logger.info(f"Loaded {len(records)} records for post-processing.")
 
-    # 1. Calibrate scores (optional)
-    if post_config.calibration.enabled:
-        records_list = calibrate_scores(records_list, metric_dicts, vars(post_config.calibration))
+    # ------------------------------------------------------------------ build global metric list (namespaced)
+    metric_dicts = []
+    for rubric_name, rubric_cfg in rubrics.root.items():
+        for m in rubric_cfg.metrics:
+            metric_dicts.append(
+                {
+                    "name": f"{rubric_name}.{m.name}",
+                    "description": m.description,
+                    "prompt_hint": m.prompt_hint,
+                }
+            )
 
-    # 2. Drop records with > X% missing metrics
-    records_list = filter_by_missing_metrics(records_list, metric_dicts, post_config.min_metrics_present_percent)
-    if not records_list:
-        logger.warning("No records remaining after filtering by missing metrics. Halting post-processing.")
+    # ------------------------------------------------------------------ 1. calibration
+    if post_cfg.calibration.enabled:
+        records = calibrate_scores(
+            records,
+            metric_dicts,
+            vars(post_cfg.calibration),
+        )
+
+    # ------------------------------------------------------------------ 2. drop by missing-metric ratio
+    records = filter_by_missing_metrics(
+        records,
+        metric_dicts,
+        post_cfg.min_metrics_present_percent,
+    )
+    if not records:
+        logger.warning("All records were filtered out after missing-metric check.")
         return
 
-    # 3. Partition into train/val/test
-    split_ratios_dict = vars(post_config.splits)
-    final_splits = split_dataset(records_list, split_ratios_dict)
+    # ------------------------------------------------------------------ 3. split
+    split_ratios = vars(post_cfg.splits)
+    splits = split_dataset(records, split_ratios)
 
-    # 4. Write final dataset releases
-    dataset_name_prefix = post_config.final_dataset_name_prefix
-    for split_name, split_data in final_splits.items():
-        if split_data: # Only save if there's data for the split
-            output_file = output_dir / f"{dataset_name_prefix}.{split_name}.{app_config.run.artifact_ext}"
-            file_io.save_records(split_data, output_file)
-            logger.info(f"Saved final split '{split_name}' with {len(split_data)} records to {output_file}")
-        else:
-            logger.warning(f"No data for split '{split_name}'. Not saving file.")
-            
+    # ------------------------------------------------------------------ 4. write
+    prefix = post_cfg.final_dataset_name_prefix
+    for split_name, data in splits.items():
+        if not data:
+            logger.warning(f"No records for split '{split_name}'. Skipping file write.")
+            continue
+        outfile = output_dir / f"{prefix}.{split_name}.{app_config.run.artifact_ext}"
+        file_io.save_records(data, outfile)
+        logger.info(f"Saved {len(data)} records to {outfile}")
+
     logger.info("--- Post-processing Stage Completed ---")

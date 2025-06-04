@@ -1,0 +1,41 @@
+name: entertainment_personal
+metrics:
+  - name: "authentic_voice"
+    description: "Rate the text for Authentic Personal Voice. This refers to whether the text sounds like a real person with genuine personality rather than a generic content creator or AI."
+    prompt_hint: "Evaluate how genuine and personal the voice feels."
+  
+  - name: "engaging_momentum"
+    description: "Rate the text for Engaging Hook and Momentum. This refers to whether the text grabs attention immediately and maintains interest throughout rather than losing steam or meandering."
+    prompt_hint: "Evaluate how well the text captures and holds attention."
+  
+  - name: "relatable_connection"
+    description: "Rate the text for Relatable Without Pandering. This refers to whether the text connects with audience experiences authentically rather than trying too hard to be liked."
+    prompt_hint: "Evaluate how naturally the text connects with readers."
+  
+  - name: "natural_humor"
+    description: "Rate the text for Humor that Lands Naturally. This refers to whether jokes and wit emerge from the situation organically rather than feeling forced or falling flat."
+    prompt_hint: "Evaluate how naturally humor emerges from the content."
+  
+  - name: "vulnerable_boundaries"
+    description: "Rate the text for Vulnerable Without Oversharing. This refers to whether personal details are meaningful and appropriate rather than uncomfortable or attention-seeking."
+    prompt_hint: "Evaluate the balance between openness and boundaries."
+  
+  - name: "fresh_perspective"
+    description: "Rate the text for Fresh Perspective on Familiar Topics. This refers to whether the text finds new angles on common experiences rather than rehashing obvious observations."
+    prompt_hint: "Evaluate how fresh the perspective feels."
+  
+  - name: "conversational_clarity"
+    description: "Rate the text for Conversational Without Sloppiness. This refers to whether informal tone maintains clarity and coherence rather than becoming rambling or confusing."
+    prompt_hint: "Evaluate the balance between casual tone and clarity."
+  
+  - name: "multimedia_integration"
+    description: "Rate the text for Multimedia Integration. This refers to whether links, images, or other media elements are used effectively to enhance rather than distract from content."
+    prompt_hint: "Evaluate how well multimedia elements are integrated."
+  
+  - name: "community_engagement"
+    description: "Rate the text for Community Engagement Potential. This refers to whether the text naturally invites discussion and interaction without begging for comments or shares."
+    prompt_hint: "Evaluate how naturally the text encourages engagement."
+  
+  - name: "memorable_takeaway"
+    description: "Rate the text for Memorable Takeaway or Impression. This refers to whether the text leaves readers with something to think about or share rather than being instantly forgettable."
+    prompt_hint: "Evaluate what lasting impression the text leaves."

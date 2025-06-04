@@ -1,0 +1,41 @@
+name: academic_informative
+metrics:
+  - name: "argumentative_rigor"
+    description: "Rate the text for Argumentative Rigor and Logical Structure. This refers to whether claims follow logically, evidence supports conclusions, and counterarguments are addressed rather than ignored."
+    prompt_hint: "Evaluate the logical strength and structure of arguments."
+  
+  - name: "source_credibility"
+    description: "Rate the text for Source Credibility and Integration. This refers to whether authoritative sources are used appropriately and synthesized into original analysis rather than just summarized."
+    prompt_hint: "Evaluate the quality and integration of sources."
+  
+  - name: "conceptual_clarity"
+    description: "Rate the text for Conceptual Clarity and Precision. This refers to whether complex ideas are explained clearly without oversimplification, and technical terms are used correctly and consistently."
+    prompt_hint: "Evaluate how clearly complex concepts are explained."
+  
+  - name: "original_analysis"
+    description: "Rate the text for Original Analysis and Insight. This refers to whether the work goes beyond summarizing existing knowledge to offer novel perspectives, connections, or interpretations."
+    prompt_hint: "Evaluate the originality of analysis and insights."
+  
+  - name: "methodological_soundness"
+    description: "Rate the text for Methodological Soundness. This refers to whether research methods are appropriate to claims being made and limitations are acknowledged rather than hidden."
+    prompt_hint: "Evaluate the appropriateness and transparency of methods."
+  
+  - name: "contextual_awareness"
+    description: "Rate the text for Contextual Awareness and Scope. This refers to whether the work appropriately situates itself within the broader field, neither too narrow nor overreaching its evidence."
+    prompt_hint: "Evaluate how well the work understands its place in the field."
+  
+  - name: "evidence_quality"
+    description: "Rate the text for Evidence Quality and Relevance. This refers to whether examples and data directly support claims without cherry-picking or misrepresentation of findings."
+    prompt_hint: "Evaluate the quality and relevance of supporting evidence."
+  
+  - name: "accessible_complexity"
+    description: "Rate the text for Accessibility Without Dumbing Down. This refers to whether complex topics are made understandable while respecting reader intelligence and maintaining nuance."
+    prompt_hint: "Evaluate the balance between accessibility and sophistication."
+  
+  - name: "structural_signposting"
+    description: "Rate the text for Structural Coherence and Signposting. This refers to whether the organization is clear and transitions effectively guide readers through the argument."
+    prompt_hint: "Evaluate how well the structure guides the reader."
+  
+  - name: "practical_significance"
+    description: "Rate the text for Practical Implications and Significance. This refers to whether the work demonstrates why findings matter and connects to real-world applications or consequences."
+    prompt_hint: "Evaluate the real-world relevance and importance."

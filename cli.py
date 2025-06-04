@@ -9,7 +9,7 @@ import random
 import string
 import yaml # For loading/dumping configs
 
-from dolphin_lit_rm.core_configs import RunConfig, DatasetsConfig, RubricConfig, AppConfig
+from dolphin_lit_rm.core_configs import RunConfig, DatasetsConfig, RubricConfig, AppConfig, RubricsConfig
 from dolphin_lit_rm.utils.state_manager import StateManager
 
 # Import stage runners
@@ -25,28 +25,38 @@ from dolphin_lit_rm.postprocessing.pipeline import run_postprocessing_stage
 
 app = typer.Typer(name="dolphin-lit-rm", help="Literary Reward Model Data Pipeline CLI")
 
+def _read_yaml(path: Path) -> dict:
+    with path.open("r") as fh:
+        return yaml.safe_load(fh)
+
 # --- Helper to load configurations ---
 def load_configuration(
     run_config_path: Optional[Path],
     datasets_config_path: Optional[Path],
-    rubric_config_path: Optional[Path],
-    existing_run_dir: Optional[Path] = None # For resuming
+    rubric_paths: Optional[List[Path]],        # ← allow *several* rubric files
+    existing_run_dir: Optional[Path] = None,
 ) -> AppConfig:
     
     if existing_run_dir:
         logger.info(f"Resuming run from: {existing_run_dir}")
-        # Load configs from the existing run directory
-        run_config_path = existing_run_dir / "config" / "run.yaml"
+
+        run_config_path      = existing_run_dir / "config" / "run.yaml"
         datasets_config_path = existing_run_dir / "config" / "datasets.yaml"
-        rubric_config_path = existing_run_dir / "config" / "rubric.yaml"
-        if not all([p.exists() for p in [run_config_path, datasets_config_path, rubric_config_path]]):
-            logger.error(f"One or more config files not found in resumed run directory {existing_run_dir}/config. Exiting.")
+
+        # ── locate rubric YAMLs (supports both old and new layouts) ────────────
+        rubric_dir   = existing_run_dir / "config" / "rubrics"
+        if rubric_dir.is_dir():
+            rubric_paths = sorted(rubric_dir.glob("*.yaml"))
+        else:                                  # legacy single-file case
+            rubric_paths = [existing_run_dir / "config" / "rubric.yaml"]
+
+        if not (run_config_path.exists() and datasets_config_path.exists() and rubric_paths):
+            logger.error(
+                f"One or more config files not found in resumed run directory "
+                f"{existing_run_dir}/config. Exiting."
+            )
             raise typer.Exit(code=1)
-    else:
-        # Ensure default paths are provided if specific ones aren't
-        if not run_config_path: run_config_path = Path("dolphin_lit_rm/config/run.yaml")
-        if not datasets_config_path: datasets_config_path = Path("dolphin_lit_rm/config/datasets.yaml")
-        if not rubric_config_path: rubric_config_path = Path("dolphin_lit_rm/config/rubric.yaml")
+
 
     try:
         with open(run_config_path, 'r') as f:
@@ -57,15 +67,30 @@ def load_configuration(
             runs_parent_path = Path(run_config_data['runs_parent_dir'])
             runs_parent_path.mkdir(parents=True, exist_ok=True)
         
-        run_cfg = RunConfig(**run_config_data)
+        # ----------------------- load run + datasets -----------------------------
+        run_cfg     = RunConfig(**_read_yaml(run_config_path))
+        datasets_cfg = DatasetsConfig(**_read_yaml(datasets_config_path))
 
-        with open(datasets_config_path, 'r') as f:
-            datasets_config_data = yaml.safe_load(f)
-        datasets_cfg = DatasetsConfig(**datasets_config_data)
+        # ----------------------- load all rubric YAMLs ---------------------------
+        rubric_files: List[Path] = []
+        if rubric_paths:
+            for p in rubric_paths:
+                rubric_files.extend(sorted(
+                    p.glob("*.yaml") if p.is_dir() else [p]
+                ))
+        else:                                         # default single-file case
+            rubric_files = [Path("dolphin_lit_rm/config/rubric.yaml")]
 
-        with open(rubric_config_path, 'r') as f:
-            rubric_config_data = yaml.safe_load(f)
-        rubric_cfg = RubricConfig(**rubric_config_data)
+        rubrics_dict = {}
+        for f in rubric_files:
+            loaded = _read_yaml(f)
+            cfg     = RubricConfig(**loaded)
+            if cfg.name in rubrics_dict:
+                logger.error(f"Duplicate rubric name '{cfg.name}' in {f}.")
+                raise typer.Exit(code=1)
+            rubrics_dict[cfg.name] = cfg
+
+        rubrics_cfg = RubricsConfig(root=rubrics_dict)
 
     except FileNotFoundError as e:
         logger.error(f"Configuration file not found: {e.filename}. Exiting.")
@@ -74,67 +99,93 @@ def load_configuration(
         logger.error(f"Error loading or validating configuration: {e}. Exiting.")
         raise typer.Exit(code=1)
 
-    return AppConfig(run=run_cfg, datasets=datasets_cfg, rubric=rubric_cfg)
+    return AppConfig(run=run_cfg, datasets=datasets_cfg, rubrics=rubrics_cfg)
 
 
 # --- Helper to setup run directory and logging ---
 def setup_run_environment(app_cfg: AppConfig, resume_dir: Optional[Path]) -> AppConfig:
+    """
+    Creates / restores the directory structure for a pipeline run and
+    copies the exact configuration files that were used to launch it.
+    """
+    # ── 1. decide run directory ────────────────────────────────────────────
     if resume_dir:
-        current_run_dir = resume_dir
-        # Configs are already loaded from resume_dir by load_configuration
+        current_run_dir = resume_dir                   # nothing to copy
     else:
-        # Create new run directory
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        random_suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=6))
-        run_name = f"run_{timestamp}_{random_suffix}"
+        ts            = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        suffix        = ''.join(random.choices(string.ascii_lowercase + string.digits, k=6))
+        run_name      = f"run_{ts}_{suffix}"
         current_run_dir = Path(app_cfg.run.runs_parent_dir) / run_name
         current_run_dir.mkdir(parents=True, exist_ok=True)
         logger.info(f"New run directory created: {current_run_dir}")
 
-        # Copy current configs to the new run directory for reproducibility
-        run_config_copy_dir = current_run_dir / "config"
-        run_config_copy_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Determine original config paths (this is a bit of a hack, assumes they were default or passed)
-        # This part needs to be robust if CLI overrides were used for config paths.
-        # For simplicity, assume they are the default paths if not resuming.
-        orig_run_cfg_path = Path(getattr(app_cfg, "_cli_run_config_path", "dolphin_lit_rm/config/run.yaml"))
-        orig_ds_cfg_path = Path(getattr(app_cfg, "_cli_datasets_config_path", "dolphin_lit_rm/config/datasets.yaml"))
-        orig_rb_cfg_path = Path(getattr(app_cfg, "_cli_rubric_config_path", "dolphin_lit_rm/config/rubric.yaml"))
+        # ── 2. copy configuration files for reproducibility ───────────────
+        cfg_dst = current_run_dir / "config"
+        cfg_dst.mkdir(parents=True, exist_ok=True)
+
+        # original paths as remembered by the CLI callback
+        orig_run_cfg = Path(getattr(app_cfg, "_cli_run_config_path",
+                                    "dolphin_lit_rm/config/run.yaml"))
+        orig_ds_cfg  = Path(getattr(app_cfg, "_cli_datasets_config_path",
+                                    "dolphin_lit_rm/config/datasets.yaml"))
+        rubrics_srcs = getattr(app_cfg, "_cli_rubric_config_path", None)  # Path | List[Path] | None
 
         try:
-            shutil.copy(orig_run_cfg_path, run_config_copy_dir / "run.yaml")
-            shutil.copy(orig_ds_cfg_path, run_config_copy_dir / "datasets.yaml")
-            shutil.copy(orig_rb_cfg_path, run_config_copy_dir / "rubric.yaml")
-            app_cfg.run.run_config_copy_path = run_config_copy_dir / "run.yaml"
+            shutil.copy(orig_run_cfg, cfg_dst / "run.yaml")
+            shutil.copy(orig_ds_cfg,  cfg_dst / "datasets.yaml")
         except Exception as e:
-            logger.warning(f"Could not copy config files to run directory: {e}")
+            logger.warning(f"Could not copy run/datasets YAMLs to run directory: {e}")
 
+        # ── 2a. copy rubric YAMLs (supports file or directory, many or one)
+        rubrics_dst = cfg_dst / "rubrics"
+        rubrics_dst.mkdir(parents=True, exist_ok=True)
 
-    # Update AppConfig with dynamic paths
+        def _copy_rubric(p: Path):
+            try:
+                shutil.copy(p, rubrics_dst / p.name)
+            except Exception as e:
+                logger.warning(f"Failed copying rubric {p}: {e}")
+
+        if rubrics_srcs is None:
+            _copy_rubric(Path("dolphin_lit_rm/config/rubric.yaml"))
+        else:
+            if not isinstance(rubrics_srcs, (list, tuple)):
+                rubrics_srcs = [rubrics_srcs]
+            for src in rubrics_srcs:
+                src = Path(src)
+                if src.is_dir():
+                    for yml in src.glob("*.yaml"):
+                        _copy_rubric(yml)
+                else:
+                    _copy_rubric(src)
+
+        app_cfg.run.run_config_copy_path = cfg_dst / "run.yaml"
+
+    # ── 3. create artifacts / logs / state sub-dirs ────────────────────────
     app_cfg.run.current_run_dir = current_run_dir
-    app_cfg.run.artifacts_dir = current_run_dir / "artifacts"
-    app_cfg.run.logs_dir = current_run_dir / "logs"
-    app_cfg.run.state_dir = current_run_dir / "artifacts" / "state" # State inside artifacts
+    app_cfg.run.artifacts_dir   = current_run_dir / "artifacts"
+    app_cfg.run.logs_dir        = current_run_dir / "logs"
+    app_cfg.run.state_dir       = app_cfg.run.artifacts_dir / "state"
 
     app_cfg.run.artifacts_dir.mkdir(parents=True, exist_ok=True)
     app_cfg.run.logs_dir.mkdir(parents=True, exist_ok=True)
     app_cfg.run.state_dir.mkdir(parents=True, exist_ok=True)
 
-    # Configure logging to file within the run directory
-    log_file_path = app_cfg.run.logs_dir / "pipeline.log"
-    logger.remove() # Remove default handler
+    # ── 4. configure logging ───────────────────────────────────────────────
+    log_file = app_cfg.run.logs_dir / "pipeline.log"
+    logger.remove()
     logger.add(sys.stderr, level=app_cfg.run.default_log_level.upper())
-    logger.add(log_file_path, level=app_cfg.run.default_log_level.upper(), rotation="10 MB")
-    
-    logger.info(f"Logging to console and to: {log_file_path}")
+    logger.add(log_file,  level=app_cfg.run.default_log_level.upper(), rotation="10 MB")
+
+    logger.info(f"Logging to console and to: {log_file}")
     logger.info(f"Artifacts will be stored in: {app_cfg.run.artifacts_dir}")
     logger.info(f"State information in: {app_cfg.run.state_dir}")
 
-    # Initialize StateManager
+    # ── 5. initialise state manager ────────────────────────────────────────
     app_cfg.state_manager = StateManager(state_dir=app_cfg.run.state_dir)
-    
+
     return app_cfg
+
 
 # --- Global options ---
 @app.callback()
@@ -142,7 +193,10 @@ def global_options(
     ctx: typer.Context,
     run_config_file: Optional[Path] = typer.Option(None, "--run-config", "-rc", help="Path to the run configuration YAML file.", exists=False, dir_okay=False, resolve_path=True),
     datasets_config_file: Optional[Path] = typer.Option(None, "--datasets-config", "-dc", help="Path to the datasets configuration YAML file.", exists=False, dir_okay=False, resolve_path=True),
-    rubric_config_file: Optional[Path] = typer.Option(None, "--rubric-config", "-rbc", help="Path to the rubric configuration YAML file.", exists=False, dir_okay=False, resolve_path=True),
+    rubric_config_files: List[Path] = typer.Option(
+        None, "--rubric-config", "-rbc", help="Path(s) or directory with rubric YAML files.",
+        exists=False, dir_okay=True, file_okay=True, resolve_path=True,
+    ),
     resume_run_dir: Optional[Path] = typer.Option(None, "--resume", "-r", help="Path to an existing run directory to resume.", exists=True, file_okay=False, dir_okay=True, resolve_path=True),
     # Add force flags if needed, e.g. --force-ingest, --force-all-stages
     # force_all: bool = typer.Option(False, "--force-all", help="Force re-running all stages, ignoring existing artifacts/state."),
@@ -156,10 +210,10 @@ def global_options(
     _cli_options = {
         "_cli_run_config_path": run_config_file,
         "_cli_datasets_config_path": datasets_config_file,
-        "_cli_rubric_config_path": rubric_config_file,
+        "_cli_rubric_config_path": rubric_config_files,
     }
 
-    app_config = load_configuration(run_config_file, datasets_config_file, rubric_config_file, resume_run_dir)
+    app_config = load_configuration(run_config_file, datasets_config_file, rubric_config_files, resume_run_dir)
     
     # Update app_config with any CLI-provided paths for setup_run_environment to use if not resuming
     for k, v in _cli_options.items():

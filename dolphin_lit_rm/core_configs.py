@@ -1,5 +1,5 @@
 from typing import Dict, List, Optional, Any, Literal, Union
-from pydantic import BaseModel, Field, FilePath, DirectoryPath
+from pydantic import BaseModel, Field, FilePath, DirectoryPath, RootModel
 from pathlib import Path
 
 # --- Pydantic models for configuration files ---
@@ -138,16 +138,38 @@ class MetricConfig(BaseModel):
     prompt_hint: str # Short hint for the scoring prompt
 
 class RubricConfig(BaseModel):
+    name: str                                  # unique identifier (“fiction”, “non_fiction”, …)
     metrics: List[MetricConfig]
+
+class RubricsConfig(RootModel):
+    """
+    Mapping rubric-name → RubricConfig stored as the root value.
+    """
+    root: Dict[str, RubricConfig]
+
+    # convenience helpers so existing code keeps working
+    def __iter__(self):
+        return iter(self.root.values())
+
+    def __getitem__(self, k):
+        return self.root[k]
+
+    def get(self, k, default=None):
+        return self.root.get(k, default)
 
 # --- Global AppConfig to hold all loaded configurations ---
 class AppConfig(BaseModel):
     run: RunConfig
     datasets: DatasetsConfig
-    rubric: RubricConfig
+    rubrics: RubricsConfig          # ← new canonical field
 
-    # To be populated by CLI after run_dir is established
-    state_manager: Optional[Any] = None # StateManager instance
-    
+    # populated later by CLI
+    state_manager: Optional[Any] = None
+
+    # ── backward-compat shim ──────────────────────────────────────────────
+    @property
+    def rubric(self) -> RubricsConfig:     # old attribute still works
+        return self.rubrics
+
     class Config:
-        arbitrary_types_allowed = True # For StateManager
+        arbitrary_types_allowed = True

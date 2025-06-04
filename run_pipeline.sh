@@ -10,7 +10,7 @@ export PYTHONPATH="${PYTHONPATH}:$(pwd)"
 # Default config files (can be overridden by CLI options if needed)
 RUN_CONFIG="dolphin_lit_rm/config/run.yaml"
 DATASETS_CONFIG="dolphin_lit_rm/config/datasets.yaml"
-RUBRIC_CONFIG="dolphin_lit_rm/config/rubric.yaml"
+RUBRIC_CONFIG="dolphin_lit_rm/config/rubrics"
 
 # Note: If you get import errors, install the package first:
 #   pip install -r requirements.txt
