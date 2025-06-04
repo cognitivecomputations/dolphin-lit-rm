@@ -5,6 +5,7 @@ import numpy as np
 from datasets import Dataset, concatenate_datasets
 from loguru import logger
 from tqdm import tqdm
+import fnmatch
 
 from dolphin_lit_rm.core_configs import AppConfig, PostprocessingConfig, RubricConfig
 from dolphin_lit_rm.utils import file_io, state_manager
@@ -78,41 +79,69 @@ def calibrate_scores(
     return records
 
 
+# --------------------------------------------------------------------------- #
 def filter_by_missing_metrics(
-    records: List[Dict[str, Any]],
-    rubric_metrics: List[Dict[str, Any]],
-    min_metrics_present_percent: float
-) -> List[Dict[str, Any]]:
-    """Filters records that have too many missing scores."""
+    records: list[dict],
+    rubrics: dict[str, RubricConfig],
+    routing_rules: dict[str, str],
+    min_metrics_present_percent: float,
+) -> list[dict]:
+    """
+    Drop a record when more than the tolerated percentage of *its own rubric's*
+    metrics are missing.
+
+    Parameters
+    ----------
+    records : list[dict]
+        List of record dictionaries (each has ``scores`` and ``classification``).
+    rubrics : mapping[str, RubricConfig]
+        All loaded rubric definitions.
+    routing_rules : dict[str, str]
+        run.rubric_mapping: top-level class → rubric name (may include '*').
+    min_metrics_present_percent : float
+        Threshold e.g. 0.7  → keep when ≥70 % of that rubric’s metrics exist.
+    """
     if min_metrics_present_percent <= 0:
         return records
 
-    num_total_metrics = len(rubric_metrics)
-    min_metrics_required = int(num_total_metrics * min_metrics_present_percent)
-    
-    retained_records = []
-    dropped_count = 0
-    for rec in records:
-        if not rec.get("scores"): # No scores dict at all
-            if min_metrics_required > 0: # If any metrics are required, drop
-                dropped_count +=1
-                continue
-            else: # No metrics required, keep
-                retained_records.append(rec)
-                continue
+    # ---- helper: choose rubric for a record --------------------------------
+    def _select_rubric(class_label: str) -> str:
+        for pattern, name in routing_rules.items():
+            if pattern == "*" or fnmatch.fnmatch(class_label, pattern):
+                return name
+        return "default"
 
-        present_metrics_count = sum(
-            1 for metric in rubric_metrics 
-            if isinstance(rec["scores"].get(metric["name"]), (int, float)) # Check original scores
+    retained: list[dict] = []
+    dropped = 0
+
+    for rec in records:
+        class_label = (rec.get("classification") or {}).get("top", "unknown")
+        rubric_name = _select_rubric(class_label)
+        rubric_cfg  = rubrics.get(rubric_name) or rubrics["default"]
+
+        metric_names = [f"{rubric_name}.{m.name}" for m in rubric_cfg.metrics]
+        if not metric_names:                       # should never happen
+            retained.append(rec)
+            continue
+
+        present = sum(
+            1 for m in metric_names
+            if isinstance(rec.get("scores", {}).get(m), (int, float))
         )
-        if present_metrics_count >= min_metrics_required:
-            retained_records.append(rec)
+
+        if present / len(metric_names) >= min_metrics_present_percent:
+            retained.append(rec)
         else:
-            dropped_count += 1
-            
-    if dropped_count > 0:
-        logger.info(f"Dropped {dropped_count} records due to missing metrics (required {min_metrics_required}/{num_total_metrics}).")
-    return retained_records
+            dropped += 1
+
+    if dropped:
+        logger.info(
+            f"Dropped {dropped} records: fewer than "
+            f"{min_metrics_present_percent*100:.0f}% rubric-specific metrics present."
+        )
+    return retained
+# --------------------------------------------------------------------------- #
+
 
 
 def split_dataset(
@@ -231,7 +260,8 @@ def run_postprocessing_stage(app_config: AppConfig):
     # ------------------------------------------------------------------ 2. drop by missing-metric ratio
     records = filter_by_missing_metrics(
         records,
-        metric_dicts,
+        rubrics.root,                          # dict[str, RubricConfig]
+        app_config.run.rubric_mapping,         # routing rules
         post_cfg.min_metrics_present_percent,
     )
     if not records:

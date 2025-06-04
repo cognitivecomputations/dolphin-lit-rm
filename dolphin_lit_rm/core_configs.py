@@ -71,6 +71,7 @@ class PostprocessingConfig(BaseModel):
 class RunConfig(BaseModel):
     runs_parent_dir: DirectoryPath = Field(default_factory=lambda: Path("./output/runs"))
     default_log_level: str = "INFO"
+    rubric_mapping: Dict[str, str] = Field(default_factory=dict)
     
     default_llm_settings: LLMSettings = Field(default_factory=LLMSettings)
     
