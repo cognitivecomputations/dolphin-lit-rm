@@ -30,7 +30,8 @@ DEFAULT_TOP_LEVEL_GENRES = [
 def classify_text_zero_shot(
     text: str,
     class_config: ClassificationConfig,
-    llm_client_instance: llm_api_client.LLMAPIClient
+    llm_client_instance: llm_api_client.LLMAPIClient,
+    app_config
 ) -> Tuple[Optional[str], Optional[str]]: # (top_genre, sub_genre)
     """Classifies text using a zero-shot LLM approach."""
     if not CLASSIFICATION_TEMPLATE:
@@ -185,7 +186,7 @@ def run_classification_stage(app_config: AppConfig):
                 top_genre, sub_genre = "unknown", None
             else:
                 top_genre, sub_genre = classify_text_zero_shot(
-                    response_text, class_config, llm_client_instance
+                    response_text, class_config, llm_client_instance, app_config
                 )
             
             # Ensure 'classification' field exists and is a dict

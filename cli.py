@@ -44,9 +44,9 @@ def load_configuration(
             raise typer.Exit(code=1)
     else:
         # Ensure default paths are provided if specific ones aren't
-        if not run_config_path: run_config_path = Path("dolphin-lit-rm/config/run.yml")
-        if not datasets_config_path: datasets_config_path = Path("dolphin-lit-rm/config/datasets.yml")
-        if not rubric_config_path: rubric_config_path = Path("dolphin-lit-rm/config/rubric.yml")
+        if not run_config_path: run_config_path = Path("dolphin_lit_rm/config/run.yml")
+        if not datasets_config_path: datasets_config_path = Path("dolphin_lit_rm/config/datasets.yml")
+        if not rubric_config_path: rubric_config_path = Path("dolphin_lit_rm/config/rubric.yml")
 
     try:
         with open(run_config_path, 'r') as f:
@@ -92,9 +92,9 @@ def setup_run_environment(app_cfg: AppConfig, resume_dir: Optional[Path]) -> App
         # Determine original config paths (this is a bit of a hack, assumes they were default or passed)
         # This part needs to be robust if CLI overrides were used for config paths.
         # For simplicity, assume they are the default paths if not resuming.
-        orig_run_cfg_path = Path(getattr(app_cfg, "_cli_run_config_path", "dolphin-lit-rm/config/run.yml"))
-        orig_ds_cfg_path = Path(getattr(app_cfg, "_cli_datasets_config_path", "dolphin-lit-rm/config/datasets.yml"))
-        orig_rb_cfg_path = Path(getattr(app_cfg, "_cli_rubric_config_path", "dolphin-lit-rm/config/rubric.yml"))
+        orig_run_cfg_path = Path(getattr(app_cfg, "_cli_run_config_path", "dolphin_lit_rm/config/run.yml"))
+        orig_ds_cfg_path = Path(getattr(app_cfg, "_cli_datasets_config_path", "dolphin_lit_rm/config/datasets.yml"))
+        orig_rb_cfg_path = Path(getattr(app_cfg, "_cli_rubric_config_path", "dolphin_lit_rm/config/rubric.yml"))
 
         try:
             shutil.copy(orig_run_cfg_path, run_config_copy_dir / "run.yml")

@@ -72,6 +72,8 @@ class LLMAPIClient:
         else: # Should be caught by earlier check
              raise ValueError("Either 'prompt' or 'messages' must be provided.")
 
+        if "qwen3" in model_name.lower():
+            messages = [{"role": "system", "content": "/no_think"}] + messages
 
         for attempt in range(self.max_retries + 1):
             try:

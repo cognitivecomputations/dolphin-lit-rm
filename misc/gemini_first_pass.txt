@@ -148,7 +148,7 @@ The run directory contains:
 ```
 
 ---
-**`dolphin-lit-rm/dolphin-lit-rm/__init__.py`**
+**`dolphin-lit-rm/dolphin_lit_rm/__init__.py`**
 ---
 ```python
 # Placeholder for package-level imports or initializations if needed.
@@ -156,7 +156,7 @@ The run directory contains:
 ```
 
 ---
-**`dolphin-lit-rm/dolphin-lit-rm/config/run.yml`**
+**`dolphin-lit-rm/dolphin_lit_rm/config/run.yml`**
 ---
 ```yaml
 # Main run configuration
@@ -246,7 +246,7 @@ tokenizer_name: "gpt-4" # For tiktoken, or a HF tokenizer path
 ```
 
 ---
-**`dolphin-lit-rm/dolphin-lit-rm/config/datasets.yml`**
+**`dolphin-lit-rm/dolphin_lit_rm/config/datasets.yml`**
 ---
 ```yaml
 # Configuration for input datasets
@@ -291,7 +291,7 @@ datasets:
 ```
 
 ---
-**`dolphin-lit-rm/dolphin-lit-rm/config/rubric.yml`**
+**`dolphin-lit-rm/dolphin_lit_rm/config/rubric.yml`**
 ---
 ```yaml
 # Rubric definition for the literary reward model
@@ -323,7 +323,7 @@ metrics:
 ```
 
 ---
-**`dolphin-lit-rm/dolphin-lit-rm/config/prompts/scoring.jinja`**
+**`dolphin-lit-rm/dolphin_lit_rm/config/prompts/scoring.jinja`**
 ---
 ```jinja
 You are an expert literary critic. Your task is to evaluate the following text based on several distinct literary metrics. For each metric, provide a score on a continuous scale from 0.0 (worst) to 1.0 (best). Output only the numerical score for each metric.
@@ -352,7 +352,7 @@ Score for stylistic_originality (0.0-1.0):
 Parsing will need to extract these.
 
 ---
-**`dolphin-lit-rm/dolphin-lit-rm/config/prompts/prompt_reconstruction.jinja`**
+**`dolphin-lit-rm/dolphin_lit_rm/config/prompts/prompt_reconstruction.jinja`**
 ---
 ```jinja
 Given the following assistant's answer, write *one* plausible and concise user prompt that could have realistically produced this answer. The prompt should sound like it was written by a human.
@@ -366,7 +366,7 @@ User Prompt:
 ```
 
 ---
-**`dolphin-lit-rm/dolphin-lit-rm/config/prompts/classification.jinja`**
+**`dolphin-lit-rm/dolphin_lit_rm/config/prompts/classification.jinja`**
 ---
 ```jinja
 You are a text classification expert. Your task is to classify the following text into one primary genre category.
@@ -390,7 +390,7 @@ Primary Genre Category:
 (*Note: `genre_taxonomy.yml` is not explicitly requested but implied by `classification/classifier.py`. For now, the prompt lists genres passed to it.*)
 
 ---
-**`dolphin-lit-rm/dolphin-lit-rm/utils/schema_def.py`** (was `schema.py`)
+**`dolphin-lit-rm/dolphin_lit_rm/utils/schema_def.py`** (was `schema.py`)
 ---
 ```python
 import hashlib
@@ -461,7 +461,7 @@ def generate_record_id(
 ```
 
 ---
-**`dolphin-lit-rm/dolphin-lit-rm/utils/file_io.py`** (was `io.py`)
+**`dolphin-lit-rm/dolphin_lit_rm/utils/file_io.py`** (was `io.py`)
 ---
 ```python
 import json
@@ -590,7 +590,7 @@ def get_hf_dataset(
 ```
 
 ---
-**`dolphin-lit-rm/dolphin-lit-rm/utils/text_utils.py`**
+**`dolphin-lit-rm/dolphin_lit_rm/utils/text_utils.py`**
 ---
 ```python
 import tiktoken
@@ -638,7 +638,7 @@ def clean_text(text: str) -> str:
 ```
 
 ---
-**`dolphin-lit-rm/dolphin-lit-rm/utils/llm_api_client.py`**
+**`dolphin-lit-rm/dolphin_lit_rm/utils/llm_api_client.py`**
 ---
 ```python
 import time
@@ -753,7 +753,7 @@ class LLMAPIClient:
 ```
 
 ---
-**`dolphin-lit-rm/dolphin-lit-rm/utils/state_manager.py`**
+**`dolphin-lit-rm/dolphin_lit_rm/utils/state_manager.py`**
 ---
 ```python
 import json
@@ -837,7 +837,7 @@ class StateManager:
 ```
 
 ---
-**`dolphin-lit-rm/dolphin-lit-rm/core_configs.py`** (New file for Pydantic models of configs)
+**`dolphin-lit-rm/dolphin_lit_rm/core_configs.py`** (New file for Pydantic models of configs)
 ---
 ```python
 from typing import Dict, List, Optional, Any, Literal
@@ -998,7 +998,7 @@ I will continue with the `ingestion`, `preprocessing`, `classification`, `scorin
 Let's proceed with the module implementations.Okay, this is a substantial amount of code. I'll generate the Python modules for each stage of the pipeline, keeping in mind the new order and the `Normalization` stage. I'll also sketch out the `cli.py` which will be central to orchestrating everything.
 
 ---
-**`dolphin-lit-rm/dolphin-lit-rm/ingestion/sharegpt.py`**
+**`dolphin-lit-rm/dolphin_lit_rm/ingestion/sharegpt.py`**
 ---
 ```python
 from typing import List, Dict, Any, Iterator
@@ -1085,7 +1085,7 @@ def process_sharegpt_dataset(
 ```
 
 ---
-**`dolphin-lit-rm/dolphin-lit-rm/ingestion/standalone.py`**
+**`dolphin-lit-rm/dolphin_lit_rm/ingestion/standalone.py`**
 ---
 ```python
 from typing import List, Dict, Any, Iterator
@@ -1153,7 +1153,7 @@ def process_standalone_dataset(
 ```
 
 ---
-**`dolphin-lit-rm/dolphin-lit-rm/ingestion/longform.py`**
+**`dolphin-lit-rm/dolphin_lit_rm/ingestion/longform.py`**
 ---
 ```python
 from typing import List, Dict, Any, Iterator
@@ -1287,7 +1287,7 @@ def process_longform_dataset_from_hf(
 ```
 
 ---
-**`dolphin-lit-rm/dolphin-lit-rm/ingestion/main.py`** (New file to orchestrate ingestion)
+**`dolphin-lit-rm/dolphin_lit_rm/ingestion/main.py`** (New file to orchestrate ingestion)
 ---
 ```python
 from pathlib import Path
@@ -1402,7 +1402,7 @@ def run_ingestion_stage(app_config: AppConfig):
 ```
 
 ---
-**`dolphin-lit-rm/dolphin-lit-rm/preprocessing/filter.py`**
+**`dolphin-lit-rm/dolphin_lit_rm/preprocessing/filter.py`**
 ---
 ```python
 import re
@@ -1594,7 +1594,7 @@ def run_filter_stage(app_config: AppConfig):
 (Need to import `hashlib` in `filter.py`)
 
 ---
-**`dolphin-lit-rm/dolphin-lit-rm/preprocessing/segment.py`**
+**`dolphin-lit-rm/dolphin_lit_rm/preprocessing/segment.py`**
 ---
 ```python
 import spacy
@@ -1806,7 +1806,7 @@ def run_segmentation_stage(app_config: AppConfig):
 ```
 
 ---
-**`dolphin-lit-rm/dolphin-lit-rm/preprocessing/prompt_reconstruct.py`**
+**`dolphin-lit-rm/dolphin_lit_rm/preprocessing/prompt_reconstruct.py`**
 ---
 ```python
 from pathlib import Path
@@ -2004,7 +2004,7 @@ def run_prompt_reconstruction_stage(app_config: AppConfig):
 ```
 
 ---
-**`dolphin-lit-rm/dolphin-lit-rm/classification/classifier.py`**
+**`dolphin-lit-rm/dolphin_lit_rm/classification/classifier.py`**
 ---
 ```python
 import re
@@ -2230,7 +2230,7 @@ app_config_global: Optional[AppConfig] = None
 (Need to fix `app_config.run.tokenizer_name` access in `classify_text_zero_shot` - pass `tokenizer_name` as arg)
 
 ---
-**`dolphin-lit-rm/dolphin-lit-rm/normalization/sampler.py`** (New module)
+**`dolphin-lit-rm/dolphin_lit_rm/normalization/sampler.py`** (New module)
 ---
 ```python
 from pathlib import Path
@@ -2350,7 +2350,7 @@ def run_normalization_stage(app_config: AppConfig):
 ```
 
 ---
-**`dolphin-lit-rm/dolphin-lit-rm/scoring/judge.py`**
+**`dolphin-lit-rm/dolphin_lit_rm/scoring/judge.py`**
 ---
 ```python
 import re
@@ -2593,7 +2593,7 @@ def run_scoring_stage(app_config: AppConfig):
 ```
 
 ---
-**`dolphin-lit-rm/dolphin-lit-rm/postprocessing/pipeline.py`**
+**`dolphin-lit-rm/dolphin_lit_rm/postprocessing/pipeline.py`**
 ---
 ```python
 import hashlib
@@ -2838,7 +2838,7 @@ def run_postprocessing_stage(app_config: AppConfig):
 ```
 
 ---
-**`dolphin-lit-rm/dolphin-lit-rm/cli.py`**
+**`dolphin-lit-rm/dolphin_lit_rm/cli.py`**
 ---
 ```python
 import shutil
