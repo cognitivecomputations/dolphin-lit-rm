@@ -65,7 +65,6 @@ class LLMAPIClient:
             # Prefer chat completions endpoint if messages are provided
             endpoint = f"{self.api_base_url}/chat/completions"
             if "qwen3" in actual_model_name.lower():
-                print('!! nothink')
                 messages = [{"role": "system", "content": "/no_think"}] + messages
             payload["messages"] = messages
         elif prompt:
@@ -102,7 +101,6 @@ class LLMAPIClient:
         try:
             if is_chat: # Chat completion
                 if response_json.get("choices") and response_json["choices"][0].get("message"):
-                    print(response_json)
                     return response_json["choices"][0]["message"].get("content", "").strip()
             else: # Legacy completion
                 if response_json.get("choices"):

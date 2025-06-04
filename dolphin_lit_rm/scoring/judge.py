@@ -133,8 +133,7 @@ def score_record_with_judge(
         )
         
         llm_output_text = llm_client_instance.get_completion(api_response, is_chat=True)
-        print(llm_output_text)
-        
+
         if llm_output_text:
             return parse_scores_from_llm_response(llm_output_text, rubric_metrics)
         else:
