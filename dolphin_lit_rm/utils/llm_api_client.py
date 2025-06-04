@@ -64,6 +64,9 @@ class LLMAPIClient:
         if messages:
             # Prefer chat completions endpoint if messages are provided
             endpoint = f"{self.api_base_url}/chat/completions"
+            if "qwen3" in actual_model_name.lower():
+                print('!! nothink')
+                messages = [{"role": "system", "content": "/no_think"}] + messages
             payload["messages"] = messages
         elif prompt:
             # Fallback to completions endpoint if only prompt is provided
@@ -72,8 +75,7 @@ class LLMAPIClient:
         else: # Should be caught by earlier check
              raise ValueError("Either 'prompt' or 'messages' must be provided.")
 
-        if "qwen3" in actual_model_name.lower():
-            messages = [{"role": "system", "content": "/no_think"}] + messages
+        
 
         for attempt in range(self.max_retries + 1):
             try:
@@ -82,6 +84,7 @@ class LLMAPIClient:
                     json=payload,
                     timeout=self.timeout_seconds,
                 )
+                
                 response.raise_for_status()  # Raises HTTPError for bad responses (4XX or 5XX)
                 return response.json()
             except requests.exceptions.RequestException as e:
@@ -99,6 +102,7 @@ class LLMAPIClient:
         try:
             if is_chat: # Chat completion
                 if response_json.get("choices") and response_json["choices"][0].get("message"):
+                    print(response_json)
                     return response_json["choices"][0]["message"].get("content", "").strip()
             else: # Legacy completion
                 if response_json.get("choices"):

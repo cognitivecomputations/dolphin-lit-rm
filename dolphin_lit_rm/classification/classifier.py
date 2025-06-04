@@ -68,7 +68,9 @@ def classify_text_zero_shot(
             max_tokens=20  # Enough for "Primary Genre Category: <Category Name>"
         )
         
+        #print(api_prompt)
         llm_output = llm_client_instance.get_completion(api_response, is_chat=True)
+        #print(llm_output)
 
         if llm_output:
             # Parse the output. Example LLM output: "Primary Genre Category: Fiction"
@@ -125,7 +127,7 @@ def run_classification_stage(app_config: AppConfig):
         input_dir_clf  = Path(app_config.run.artifacts_dir) / "segmented"
         output_dir_clf = Path(app_config.run.artifacts_dir) / "classified"
         output_dir_clf.mkdir(parents=True, exist_ok=True)
-        for dataset_file in input_dir_clf.glob("*.parquet"):
+        for dataset_file in input_dir_clf.glob(f"*.{app_config.run.artifact_ext}"):
             target_file = output_dir_clf / dataset_file.name
             if not target_file.exists():
                 import shutil
@@ -143,7 +145,7 @@ def run_classification_stage(app_config: AppConfig):
         input_dir_clf  = Path(app_config.run.artifacts_dir) / "segmented"
         output_dir_clf = Path(app_config.run.artifacts_dir) / "classified"
         output_dir_clf.mkdir(parents=True, exist_ok=True)
-        for dataset_file in input_dir_clf.glob("*.parquet"):
+        for dataset_file in input_dir_clf.glob(f"*.{app_config.run.artifact_ext}"):
             target_file = output_dir_clf / dataset_file.name
             if not target_file.exists():
                 import shutil
@@ -166,19 +168,19 @@ def run_classification_stage(app_config: AppConfig):
     output_dir = Path(app_config.run.artifacts_dir) / "classified"
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    for dataset_file in input_dir.glob("*.parquet"):
+    for dataset_file in input_dir.glob(f"*.{app_config.run.artifact_ext}"):
         dataset_name = dataset_file.stem
         logger.info(f"Classifying dataset: {dataset_name}")
 
-        output_file = output_dir / f"{dataset_name}.parquet"
+        output_file = output_dir / f"{dataset_name}.{app_config.run.artifact_ext}"
         if output_file.exists() and not getattr(app_config, "force_classification", False):
             logger.info(f"Classified artifact for {dataset_name} already exists. Skipping.")
             continue
 
-        current_dataset = file_io.load_records_from_arrow(dataset_file)
+        current_dataset = file_io.load_records(dataset_file)
         if not current_dataset or len(current_dataset) == 0:
             logger.warning(f"No records in {dataset_file} for classification. Skipping.")
-            file_io.save_records_to_arrow([], output_file)
+            file_io.save_records([], output_file)
             continue
 
         stage_processed_ids = app_config.state_manager.get_processed_ids("classification", dataset_name)
@@ -239,7 +241,7 @@ def run_classification_stage(app_config: AppConfig):
                 updated_ids, "classification", dataset_name
             )
 
-        file_io.save_records_to_arrow(records, output_file)
+        file_io.save_records(records, output_file)
         logger.info(f"Finished classification for {dataset_name}: wrote {len(records)} records.")
 
     logger.info("--- Classification Stage Completed ---")

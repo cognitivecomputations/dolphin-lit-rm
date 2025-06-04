@@ -127,7 +127,7 @@ def run_segmentation_stage(app_config: AppConfig):
         input_dir_seg = Path(app_config.run.artifacts_dir) / "filtered"
         output_dir_seg = Path(app_config.run.artifacts_dir) / "segmented"
         output_dir_seg.mkdir(parents=True, exist_ok=True)
-        for dataset_file in input_dir_seg.glob("*.parquet"):
+        for dataset_file in input_dir_seg.glob(f"*.{app_config.run.artifact_ext}"):
             target_file = output_dir_seg / dataset_file.name
             if not target_file.exists(): # Avoid error if CLI is re-run and file exists
                  import shutil
@@ -142,19 +142,19 @@ def run_segmentation_stage(app_config: AppConfig):
     output_dir = Path(app_config.run.artifacts_dir) / "segmented"
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    for dataset_file in input_dir.glob("*.parquet"):
+    for dataset_file in input_dir.glob(f"*.{app_config.run.artifact_ext}"):
         dataset_name = dataset_file.stem
         logger.info(f"Segmenting dataset: {dataset_name}")
 
-        output_file = output_dir / f"{dataset_name}.parquet"
+        output_file = output_dir / f"{dataset_name}.{app_config.run.artifact_ext}"
         if output_file.exists() and not getattr(app_config, "force_segment", False):
             logger.info(f"Segmented artifact for {dataset_name} already exists. Skipping.")
             continue
 
-        filtered_dataset = file_io.load_records_from_arrow(dataset_file)
+        filtered_dataset = file_io.load_records(dataset_file)
         if not filtered_dataset or len(filtered_dataset) == 0:
             logger.warning(f"No records found in filtered file {dataset_file} for {dataset_name}. Skipping segmentation.")
-            file_io.save_records_to_arrow([], output_file) # Save empty
+            file_io.save_records([], output_file) # Save empty
             continue
         
         all_segmented_records = []
@@ -196,10 +196,10 @@ def run_segmentation_stage(app_config: AppConfig):
                 all_segmented_records.append(record_dict)
         
         if all_segmented_records:
-            file_io.save_records_to_arrow(all_segmented_records, output_file)
+            file_io.save_records(all_segmented_records, output_file)
             logger.info(f"Finished segmenting {dataset_name}: {len(all_segmented_records)} total records/chunks produced.")
         else:
             logger.warning(f"No records/chunks produced for {dataset_name} after segmentation attempt.")
-            file_io.save_records_to_arrow([], output_file) # Save empty
+            file_io.save_records([], output_file) # Save empty
 
     logger.info("--- Segmentation Stage Completed ---")

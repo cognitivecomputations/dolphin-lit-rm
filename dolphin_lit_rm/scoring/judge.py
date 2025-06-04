@@ -101,10 +101,11 @@ def score_record_with_judge(
         api_response = llm_client_instance.make_request(
             messages=messages,
             temperature=0.0, # Deterministic for scoring
-            max_tokens=max(estimated_max_tokens, 100) # Ensure a minimum
+            max_tokens= 2048 #max(estimated_max_tokens, 100) # Ensure a minimum
         )
         
         llm_output_text = llm_client_instance.get_completion(api_response, is_chat=True)
+        print(llm_output_text)
         
         if llm_output_text:
             return parse_scores_from_llm_response(llm_output_text, rubric_metrics)
@@ -132,7 +133,7 @@ def run_scoring_stage(app_config: AppConfig):
         input_dir = Path(app_config.run.artifacts_dir) / "reconstructed"
         output_dir = Path(app_config.run.artifacts_dir) / "scored"
         output_dir.mkdir(parents=True, exist_ok=True)
-        for dataset_file in input_dir.glob("*.parquet"):
+        for dataset_file in input_dir.glob(f"*.{app_config.run.artifact_ext}"):
             target = output_dir / dataset_file.name
             if not target.exists():
                 import shutil
@@ -166,7 +167,7 @@ def run_scoring_stage(app_config: AppConfig):
     output_dir = Path(app_config.run.artifacts_dir) / "scored"
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    reconstructed_files = list(input_dir.glob("*_reconstructed.parquet"))
+    reconstructed_files = list(input_dir.glob(f"*_reconstructed.{app_config.run.artifact_ext}"))
     if not reconstructed_files:
         logger.warning(f"No reconstructed files found in {input_dir}. Skipping scoring.")
         return
@@ -174,7 +175,7 @@ def run_scoring_stage(app_config: AppConfig):
     # -------------------------------------------------- dataset loop
     for dataset_file in reconstructed_files:
         base_name   = dataset_file.stem.replace("_reconstructed", "")
-        output_file = output_dir / f"{base_name}_scored.parquet"
+        output_file = output_dir / f"{base_name}_scored.{app_config.run.artifact_ext}"
 
         logger.info(f"Scoring dataset: {dataset_file.name}")
 
@@ -182,10 +183,10 @@ def run_scoring_stage(app_config: AppConfig):
             logger.info(f"{output_file} already exists. Skipping.")
             continue
 
-        current_dataset = file_io.load_records_from_arrow(dataset_file)
+        current_dataset = file_io.load_records(dataset_file)
         if not current_dataset or len(current_dataset) == 0:
             logger.warning(f"No records in {dataset_file}. Skipping.")
-            file_io.save_records_to_arrow([], output_file)
+            file_io.save_records([], output_file)
             continue
 
         processed_ids = app_config.state_manager.get_processed_ids("scoring", base_name)
@@ -243,7 +244,7 @@ def run_scoring_stage(app_config: AppConfig):
         if newly_scored_ids:
             app_config.state_manager.add_processed_ids_batch(newly_scored_ids, "scoring", base_name)
 
-        file_io.save_records_to_arrow(records, output_file)
+        file_io.save_records(records, output_file)
         logger.info(f"Finished scoring {dataset_file.name}: wrote {len(records)} records.")
 
     logger.info("--- Rubric Scoring Stage Completed ---")

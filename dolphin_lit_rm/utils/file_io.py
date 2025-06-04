@@ -7,7 +7,7 @@ from loguru import logger
 
 from dolphin_lit_rm.utils.schema_def import Record # Assuming schema_def.py
 
-def save_records_to_arrow(records: List[Dict[str, Any]], output_path: Path, schema: Optional[pa.Schema] = None) -> None:
+def save_records(records: List[Dict[str, Any]], output_path: Path, schema: Optional[pa.Schema] = None) -> None:
     """Saves a list of record dictionaries to an Arrow file."""
     if not records:
         logger.warning(f"No records to save to {output_path}")
@@ -46,7 +46,7 @@ def save_records_to_arrow(records: List[Dict[str, Any]], output_path: Path, sche
         # logger.warning(f"Saved as JSONL fallback: {output_path.with_suffix('.jsonl')}")
         raise
 
-def load_records_from_arrow(file_path: Path) -> Dataset:
+def load_records(file_path: Path) -> Dataset:
     """Loads records from an Arrow file into a Hugging Face Dataset."""
     if not file_path.exists():
         logger.warning(f"File not found: {file_path}, returning empty Dataset.")
@@ -126,3 +126,34 @@ def get_hf_dataset(
     
     logger.info(f"Successfully loaded {len(ds)} items for {path_or_hf_id}")
     return ds
+
+def _write_jsonl(records, path: Path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as f:
+        for rec in records:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+
+def _read_jsonl(path: Path) -> Dataset:
+    if not path.exists() or path.stat().st_size == 0:
+        return Dataset.from_list([])
+    with path.open("r", encoding="utf-8") as f:
+        data = [json.loads(line) for line in f if line.strip()]
+    return Dataset.from_list(data)
+
+def save_records(records, output_path: Path):
+    ext = output_path.suffix.lower()
+    if ext in {".jsonl", ".json"}:
+        _write_jsonl(records, output_path)
+    elif ext in {".parquet", ".arrow"}:
+        save_records(records, output_path)   # existing impl
+    else:
+        raise ValueError(f"Unknown artifact extension {ext}")
+
+def load_records(file_path: Path) -> Dataset:
+    ext = file_path.suffix.lower()
+    if ext in {".jsonl", ".json"}:
+        return _read_jsonl(file_path)
+    elif ext in {".parquet", ".arrow"}:
+        return load_records(file_path)     # existing impl
+    else:
+        raise ValueError(f"Unknown artifact extension {ext}")

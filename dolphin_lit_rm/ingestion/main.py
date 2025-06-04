@@ -23,7 +23,7 @@ def ingest_dataset(
 
     output_dir = Path(app_config.run.artifacts_dir) / "raw"
     output_dir.mkdir(parents=True, exist_ok=True)
-    output_file = output_dir / f"{dataset_config.name}.parquet" # Using parquet for HF compatibility
+    output_file = output_dir / f"{dataset_config.name}.{app_config.run.artifact_ext}" # Using parquet for HF compatibility
 
     # Basic skip if output exists (can be made more sophisticated)
     # if output_file.exists() and not app_config.force_stage_rerun.get("ingest"): # Assuming a force flag
@@ -77,12 +77,12 @@ def ingest_dataset(
         return [] # Return empty list on failure for this dataset
 
     if records_buffer:
-        file_io.save_records_to_arrow(records_buffer, output_file)
+        file_io.save_records(records_buffer, output_file)
         logger.info(f"Successfully ingested {len(records_buffer)} records from {dataset_config.name} to {output_file}")
     else:
         logger.warning(f"No records were produced for dataset {dataset_config.name}.")
         # Save an empty file to signify completion if necessary
-        file_io.save_records_to_arrow([], output_file)
+        file_io.save_records([], output_file)
 
 
     # This function now writes its own output. The CLI will call this per dataset.
@@ -95,7 +95,7 @@ def run_ingestion_stage(app_config: AppConfig):
     raw_artifacts_dir.mkdir(parents=True, exist_ok=True)
 
     for ds_config in app_config.datasets.datasets:
-        output_file = raw_artifacts_dir / f"{ds_config.name}.parquet"
+        output_file = raw_artifacts_dir / f"{ds_config.name}.{app_config.run.artifact_ext}"
         # Simple resumability: if output file exists, skip this dataset's ingestion.
         # Add a force flag in AppConfig if needed to override this.
         if output_file.exists() and not getattr(app_config, "force_ingest", False):

@@ -181,14 +181,14 @@ def run_postprocessing_stage(app_config: AppConfig):
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # This stage expects one primary scored file (e.g., all_sources_normalized_scored.parquet)
-    scored_files = list(input_dir.glob("*_scored.parquet"))
+    scored_files = list(input_dir.glob(f"*_scored.{app_config.run.artifact_ext}"))
     if not scored_files:
-        logger.warning(f"No scored files found in {input_dir} (expected '*_scored.parquet'). Skipping post-processing.")
+        logger.warning(f"No scored files found in {input_dir} (expected '*_scored.{app_config.run.artifact_ext}'). Skipping post-processing.")
         return
     
     if len(scored_files) > 1:
         logger.warning(f"Multiple scored files found: {scored_files}. Concatenating them for post-processing.")
-        all_scored_datasets = [file_io.load_records_from_arrow(f) for f in scored_files if f.stat().st_size > 0]
+        all_scored_datasets = [file_io.load_records(f) for f in scored_files if f.stat().st_size > 0]
         if not all_scored_datasets:
             logger.error("No data in scored files after loading. Skipping post-processing.")
             return
@@ -196,9 +196,9 @@ def run_postprocessing_stage(app_config: AppConfig):
             combined_scored_dataset = concatenate_datasets(all_scored_datasets)
         except Exception as e:
             logger.error(f"Failed to concatenate scored datasets: {e}. Processing first file only: {scored_files[0]}")
-            combined_scored_dataset = file_io.load_records_from_arrow(scored_files[0])
+            combined_scored_dataset = file_io.load_records(scored_files[0])
     elif scored_files:
-        combined_scored_dataset = file_io.load_records_from_arrow(scored_files[0])
+        combined_scored_dataset = file_io.load_records(scored_files[0])
     else: # Should be caught by the first check
         return
 
@@ -210,13 +210,14 @@ def run_postprocessing_stage(app_config: AppConfig):
     
     # Convert to list of dicts for easier manipulation
     records_list = combined_scored_dataset.to_list()
+    metric_dicts = [m.model_dump() for m in rubric_config.metrics]
 
     # 1. Calibrate scores (optional)
     if post_config.calibration.enabled:
-        records_list = calibrate_scores(records_list, rubric_config.metrics, vars(post_config.calibration))
+        records_list = calibrate_scores(records_list, metric_dicts, vars(post_config.calibration))
 
     # 2. Drop records with > X% missing metrics
-    records_list = filter_by_missing_metrics(records_list, rubric_config.metrics, post_config.min_metrics_present_percent)
+    records_list = filter_by_missing_metrics(records_list, metric_dicts, post_config.min_metrics_present_percent)
     if not records_list:
         logger.warning("No records remaining after filtering by missing metrics. Halting post-processing.")
         return
@@ -229,8 +230,8 @@ def run_postprocessing_stage(app_config: AppConfig):
     dataset_name_prefix = post_config.final_dataset_name_prefix
     for split_name, split_data in final_splits.items():
         if split_data: # Only save if there's data for the split
-            output_file = output_dir / f"{dataset_name_prefix}.{split_name}.parquet"
-            file_io.save_records_to_arrow(split_data, output_file)
+            output_file = output_dir / f"{dataset_name_prefix}.{split_name}.{app_config.run.artifact_ext}"
+            file_io.save_records(split_data, output_file)
             logger.info(f"Saved final split '{split_name}' with {len(split_data)} records to {output_file}")
         else:
             logger.warning(f"No data for split '{split_name}'. Not saving file.")

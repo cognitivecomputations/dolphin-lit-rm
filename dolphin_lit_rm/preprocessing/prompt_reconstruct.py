@@ -83,7 +83,7 @@ def run_prompt_reconstruction_stage(app_config: AppConfig):
         input_dir_pr  = Path(app_config.run.artifacts_dir) / "normalized"
         output_dir_pr = Path(app_config.run.artifacts_dir) / "reconstructed"
         output_dir_pr.mkdir(parents=True, exist_ok=True)
-        for dataset_file in input_dir_pr.glob("*.parquet"):
+        for dataset_file in input_dir_pr.glob(f"*.{app_config.run.artifact_ext}"):
             target_file = output_dir_pr / dataset_file.name
             if not target_file.exists():
                 import shutil
@@ -101,7 +101,7 @@ def run_prompt_reconstruction_stage(app_config: AppConfig):
         input_dir_pr  = Path(app_config.run.artifacts_dir) / "normalized"
         output_dir_pr = Path(app_config.run.artifacts_dir) / "reconstructed"
         output_dir_pr.mkdir(parents=True, exist_ok=True)
-        for dataset_file in input_dir_pr.glob("*.parquet"):
+        for dataset_file in input_dir_pr.glob(f"*.{app_config.run.artifact_ext}"):
             target_file = output_dir_pr / dataset_file.name
             if not target_file.exists():
                 import shutil
@@ -124,7 +124,7 @@ def run_prompt_reconstruction_stage(app_config: AppConfig):
     output_dir = Path(app_config.run.artifacts_dir) / "reconstructed"
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    normalized_files = list(input_dir.glob("*.parquet"))
+    normalized_files = list(input_dir.glob(f"*.{app_config.run.artifact_ext}"))
     if not normalized_files:
         logger.warning(f"No normalized files found in {input_dir}. Skipping prompt reconstruction.")
         return
@@ -134,15 +134,15 @@ def run_prompt_reconstruction_stage(app_config: AppConfig):
         dataset_name = dataset_file.stem          # e.g. all_sources_normalized
         logger.info(f"Reconstructing prompts for: {dataset_name}")
 
-        output_file = output_dir / f"{dataset_name}_reconstructed.parquet"
+        output_file = output_dir / f"{dataset_name}_reconstructed.{app_config.run.artifact_ext}"
         if output_file.exists() and not getattr(app_config, "force_prompt_reconstruction", False):
             logger.info(f"Reconstructed artifact for {dataset_name} already exists. Skipping.")
             continue
 
-        current_dataset = file_io.load_records_from_arrow(dataset_file)
+        current_dataset = file_io.load_records(dataset_file)
         if not current_dataset or len(current_dataset) == 0:
             logger.warning(f"No records in {dataset_file}. Skipping.")
-            file_io.save_records_to_arrow([], output_file)
+            file_io.save_records([], output_file)
             continue
 
         processed_ids = app_config.state_manager.get_processed_ids("prompt_reconstruction", dataset_name)
@@ -196,7 +196,7 @@ def run_prompt_reconstruction_stage(app_config: AppConfig):
                 updated_ids, "prompt_reconstruction", dataset_name
             )
 
-        file_io.save_records_to_arrow(records, output_file)
+        file_io.save_records(records, output_file)
         logger.info(f"Finished prompt reconstruction for {dataset_name}: wrote {len(records)} records.")
 
     logger.info("--- Prompt Reconstruction Stage Completed ---")

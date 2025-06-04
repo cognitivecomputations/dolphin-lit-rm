@@ -115,11 +115,11 @@ def run_filter_stage(app_config: AppConfig):
     processed_count_total = 0
     retained_count_total = 0
 
-    for dataset_file in input_dir.glob("*.parquet"):
+    for dataset_file in input_dir.glob(f"*.{app_config.run.artifact_ext}"):
         dataset_name = dataset_file.stem
         logger.info(f"Filtering dataset: {dataset_name}")
         
-        output_file = output_dir / f"{dataset_name}.parquet"
+        output_file = output_dir / f"{dataset_name}.{app_config.run.artifact_ext}"
         if output_file.exists() and not getattr(app_config, "force_filter", False):
             logger.info(f"Filtered artifact for {dataset_name} already exists. Skipping.")
             # Need to load and count if we want accurate totals for resumed runs
@@ -131,17 +131,17 @@ def run_filter_stage(app_config: AppConfig):
                 # A simpler approach: if resuming, the LMDB is already populated.
                 # If it's a new run, it starts empty.
                 # So, no special handling needed here for deduplicator on resume.
-                existing_data = file_io.load_records_from_arrow(output_file)
+                existing_data = file_io.load_records(output_file)
                 processed_count_total += len(existing_data) # Assume all were processed to get here
                 retained_count_total += len(existing_data)
             except Exception:
                 pass # If loading fails, it will be reprocessed
             continue
 
-        raw_dataset = file_io.load_records_from_arrow(dataset_file)
+        raw_dataset = file_io.load_records(dataset_file)
         if not raw_dataset or len(raw_dataset) == 0:
             logger.warning(f"No records found in raw file {dataset_file} for {dataset_name}. Skipping.")
-            file_io.save_records_to_arrow([], output_file) # Save empty
+            file_io.save_records([], output_file) # Save empty
             continue
         
         processed_count_total += len(raw_dataset)
@@ -172,11 +172,11 @@ def run_filter_stage(app_config: AppConfig):
                 filtered_records.append(processed_record)
         
         if filtered_records:
-            file_io.save_records_to_arrow(filtered_records, output_file)
+            file_io.save_records(filtered_records, output_file)
             logger.info(f"Finished filtering {dataset_name}: {len(filtered_records)} records retained out of {len(raw_dataset)}.")
         else:
             logger.warning(f"No records retained for {dataset_name} after filtering.")
-            file_io.save_records_to_arrow([], output_file) # Save empty
+            file_io.save_records([], output_file) # Save empty
             
         retained_count_total += len(filtered_records)
 

@@ -49,7 +49,7 @@ class NormalizationQuotaConfig(BaseModel):
     default_quota_per_class: int = 5000
 
 class ScoringConfig(BaseModel):
-    judge_model_name: Optional[str] = None
+    model_name: Optional[str] = None
     max_tokens_per_metric_response: int = 8
     llm_settings: Optional[LLMSettings] = None # Overrides default
 
@@ -92,6 +92,7 @@ class RunConfig(BaseModel):
     logs_dir: Optional[DirectoryPath] = None
     state_dir: Optional[DirectoryPath] = None
     run_config_copy_path: Optional[FilePath] = None # Path where this config is copied for the run
+    artifact_ext: str = "jsonl"
 
     def get_llm_settings_for_stage(self, stage_name: str) -> LLMSettings:
         """Merges default LLM settings with stage-specific overrides."""

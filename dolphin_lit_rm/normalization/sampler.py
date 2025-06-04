@@ -19,7 +19,7 @@ def run_normalization_stage(app_config: AppConfig):
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Output is a single combined and normalized dataset
-    output_file = output_dir / "all_sources_normalized.parquet"
+    output_file = output_dir / f"all_sources_normalized.{app_config.run.artifact_ext}"
     
     # Resumability for normalization is tricky if quotas change.
     # If output_file exists, we assume it's correctly normalized from a previous run.
@@ -29,15 +29,15 @@ def run_normalization_stage(app_config: AppConfig):
 
     # 1. Load and concatenate all classified datasets
     all_classified_datasets = []
-    for dataset_file in input_dir.glob("*.parquet"):
+    for dataset_file in input_dir.glob(f"*.{app_config.run.artifact_ext}"):
         logger.info(f"Loading classified data from {dataset_file.name} for normalization.")
-        ds = file_io.load_records_from_arrow(dataset_file)
+        ds = file_io.load_records(dataset_file)
         if ds and len(ds) > 0:
             all_classified_datasets.append(ds)
     
     if not all_classified_datasets:
         logger.warning("No classified datasets found to normalize. Skipping.")
-        file_io.save_records_to_arrow([], output_file) # Save empty
+        file_io.save_records([], output_file) # Save empty
         return
 
     # Concatenate into a single Hugging Face Dataset
@@ -54,7 +54,7 @@ def run_normalization_stage(app_config: AppConfig):
             temp_records.extend(ds.to_list())
         if not temp_records:
             logger.warning("No records after attempting to combine. Skipping normalization.")
-            file_io.save_records_to_arrow([], output_file)
+            file_io.save_records([], output_file)
             return
         combined_dataset = Dataset.from_list(temp_records)
 
@@ -104,10 +104,10 @@ def run_normalization_stage(app_config: AppConfig):
     if final_normalized_records:
         # Shuffle the final combined list to mix datasets and classes
         random.shuffle(final_normalized_records) 
-        file_io.save_records_to_arrow(final_normalized_records, output_file)
+        file_io.save_records(final_normalized_records, output_file)
         logger.info(f"Saved {len(final_normalized_records)} normalized records to {output_file}")
     else:
         logger.warning("No records retained after normalization. Saving empty file.")
-        file_io.save_records_to_arrow([], output_file)
+        file_io.save_records([], output_file)
 
     logger.info("--- Normalization (Quota Sampling) Stage Completed ---")
