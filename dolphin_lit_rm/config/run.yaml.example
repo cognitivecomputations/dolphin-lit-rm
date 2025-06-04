@@ -143,16 +143,99 @@ normalization:
   # 'default' applies to classes not explicitly listed.
   quotas:
     class.top:
-      "fiction": 100
-      "news": 100
-      "essay": 100
-      "poetry": 100
-      "dialogue": 100
-      "technical": 100
-      "marketing": 100
-      "unknown": 100 # Max for items classified as unknown
-    default_quota_per_class:
-      "default": 100  # or whatever default value you want
+      literary_novel: 1000
+      fantasy_novel: 1000
+      science_fiction_novel: 1000
+      horror_novel: 1000
+      thriller_suspense_novel: 1000
+      mystery_detective_novel: 1000
+      romance_novel: 1000
+      historical_fiction_novel: 1000
+      young_adult_novel: 1000
+      middle_grade_novel: 1000
+      shortform_story_literary: 1000
+      shortform_story_fantasy: 1000
+      shortform_story_science_fiction: 1000
+      shortform_story_horror: 1000
+      shortform_story_thriller: 1000
+      shortform_story_mystery: 1000
+      shortform_story_crime: 1000
+      shortform_story_romance: 1000
+      shortform_story_historical: 1000
+      shortform_story_humor: 1000
+      shortform_story_young_adult: 1000
+      shortform_story_other: 1000
+      flash_fiction: 1000
+      vignette: 1000
+      song_lyrics: 1000
+      narrative_poetry: 1000
+      dramatic_poetry: 1000
+      experimental_poetry: 1000
+      haiku_tanka: 1000
+      spoken_word_poetry: 1000
+      stage_play_script: 1000
+      screenplay: 1000
+      teleplay: 1000
+      radio_play_script: 1000
+      musical_libretto: 1000
+      comic_book_script: 1000
+      graphic_novel_script: 1000
+      japanese_manga: 1000
+      webcomic_script: 1000
+      videogame_script: 1000
+      interactive_fiction: 1000
+      rpg_transcript: 1000
+      rpg_transcript_erotic: 1000
+      rpg_scenario: 1000
+      academic_article: 1000
+      academic_book: 1000
+      dissertation_thesis: 1000
+      conference_paper: 1000
+      literature_review: 1000
+      research_proposal: 1000
+      textbook_chapter: 1000
+      news_report: 1000
+      investigative_journalism: 1000
+      feature_article: 1000
+      opinion_piece: 1000
+      editorial: 1000
+      column: 1000
+      profile_interview: 1000
+      review_article: 1000
+      blog_post: 1000
+      memoir: 1000
+      biography: 1000
+      personal_essay: 1000
+      travel_writing: 1000
+      nature_writing: 1000
+      food_writing: 1000
+      humor_nonfiction: 1000
+      diary_entry: 1000
+      political_speech: 1000
+      advocacy_paper: 1000
+      grant_proposal: 1000
+      marketing_copy: 1000
+      business_report: 1000
+      technical_manual: 1000
+      how_to_guide: 1000
+      popular_science: 1000
+      reference_entry: 1000
+      faq_document: 1000
+      legal_document: 1000
+      medical_info: 1000
+      case_study: 1000
+      social_media_post: 1000
+      forum_post: 1000
+      product_description: 1000
+      user_review: 1000
+      website_copy: 1000
+      email_newsletter: 1000
+      erotic_fiction: 1000
+      erotic_poetry: 1000
+      bdsm_scene_script: 1000
+      erotic_rp_log: 1000
+  default_quota_per_class: 100
+
 
 scoring:
   model_name: "qwen/qwen3-32b" # Example, Qwen-3-30B-Instruct
