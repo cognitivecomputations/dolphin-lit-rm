@@ -5,10 +5,12 @@ from datasets import Dataset
 from loguru import logger
 from tqdm import tqdm
 from jinja2 import Template
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from dolphin_lit_rm.core_configs import AppConfig, ClassificationConfig
 from dolphin_lit_rm.utils import text_utils, file_io, state_manager, llm_api_client
 from dolphin_lit_rm.utils.schema_def import Record, ClassificationLabels
+from dolphin_lit_rm.utils.concurrency import parallel_map
 
 # Load classification prompt template
 CLASSIFICATION_TEMPLATE_PATH = Path(__file__).parent.parent / "config" / "prompts" / "classification.jinja"
@@ -104,57 +106,70 @@ def classify_text_zero_shot(
 
 
 def run_classification_stage(app_config: AppConfig):
-    global app_config_global # Hack for text_utils token counting in classify_text_zero_shot
+    """
+    Parallelised version of the original run_classification_stage.
+    Concurrency level comes from
+    app_config.run.get_llm_settings_for_stage("classification").max_concurrent_requests
+    (defaults to 4 if unset).
+    """
+    # ---------------------------------------------------- boiler-plate setup
+    global app_config_global                # needed by classify_text_zero_shot
     app_config_global = app_config
 
     logger.info("--- Starting Classification Stage ---")
+
+    # 1. template check ------------------------------------------------------
     if not CLASSIFICATION_TEMPLATE:
         logger.error("Classification template not loaded. Skipping stage.")
-        # Copy segmented files to classified directory
-        input_dir_clf = Path(app_config.run.artifacts_dir) / "segmented"
+        # passthrough segmented → classified (unchanged from original)
+        input_dir_clf  = Path(app_config.run.artifacts_dir) / "segmented"
         output_dir_clf = Path(app_config.run.artifacts_dir) / "classified"
         output_dir_clf.mkdir(parents=True, exist_ok=True)
         for dataset_file in input_dir_clf.glob("*.parquet"):
             target_file = output_dir_clf / dataset_file.name
             if not target_file.exists():
-                 import shutil
-                 shutil.copy(dataset_file, target_file)
+                import shutil
+                shutil.copy(dataset_file, target_file)
             logger.warning(f"Copied {dataset_file.name} to classified dir as template is missing.")
         return
 
-    class_config = app_config.run.classification
-    
-    llm_settings_for_stage = app_config.run.get_llm_settings_for_stage("classification")
-    if not llm_settings_for_stage.api_base_url or not llm_settings_for_stage.model_name:
-        logger.error("API base URL or model name for classification is not configured. Skipping stage.")
-        # Copy files
-        input_dir_clf = Path(app_config.run.artifacts_dir) / "segmented"
+    # 2. read config + build client -----------------------------------------
+    class_config          = app_config.run.classification
+    llm_settings          = app_config.run.get_llm_settings_for_stage("classification")
+
+    if not llm_settings.api_base_url or not llm_settings.model_name:
+        logger.error("API base URL or model name for classification not configured. Skipping stage.")
+        # passthrough segmented → classified (unchanged from original)
+        input_dir_clf  = Path(app_config.run.artifacts_dir) / "segmented"
         output_dir_clf = Path(app_config.run.artifacts_dir) / "classified"
         output_dir_clf.mkdir(parents=True, exist_ok=True)
         for dataset_file in input_dir_clf.glob("*.parquet"):
             target_file = output_dir_clf / dataset_file.name
             if not target_file.exists():
-                 import shutil
-                 shutil.copy(dataset_file, target_file)
+                import shutil
+                shutil.copy(dataset_file, target_file)
             logger.warning(f"Copied {dataset_file.name} to classified dir as LLM config is missing.")
         return
 
-    llm_client_instance = llm_api_client.LLMAPIClient(
-        api_base_url=llm_settings_for_stage.api_base_url,
-        api_key=llm_settings_for_stage.api_key,
-        default_model_name=llm_settings_for_stage.model_name,
-        timeout_seconds=llm_settings_for_stage.timeout_seconds or 60,
-        max_retries=llm_settings_for_stage.max_retries or 3
+    max_workers = llm_settings.max_concurrent_requests or 4
+
+    llm_client = llm_api_client.LLMAPIClient(
+        api_base_url       = llm_settings.api_base_url,
+        api_key            = llm_settings.api_key,
+        default_model_name = llm_settings.model_name,
+        timeout_seconds    = llm_settings.timeout_seconds or 60,
+        max_retries        = llm_settings.max_retries  or 3,
     )
-    
-    input_dir = Path(app_config.run.artifacts_dir) / "segmented"
+
+    # 3. iterate datasets ----------------------------------------------------
+    input_dir  = Path(app_config.run.artifacts_dir) / "segmented"
     output_dir = Path(app_config.run.artifacts_dir) / "classified"
     output_dir.mkdir(parents=True, exist_ok=True)
 
     for dataset_file in input_dir.glob("*.parquet"):
         dataset_name = dataset_file.stem
         logger.info(f"Classifying dataset: {dataset_name}")
-        
+
         output_file = output_dir / f"{dataset_name}.parquet"
         if output_file.exists() and not getattr(app_config, "force_classification", False):
             logger.info(f"Classified artifact for {dataset_name} already exists. Skipping.")
@@ -165,53 +180,67 @@ def run_classification_stage(app_config: AppConfig):
             logger.warning(f"No records in {dataset_file} for classification. Skipping.")
             file_io.save_records_to_arrow([], output_file)
             continue
-            
+
         stage_processed_ids = app_config.state_manager.get_processed_ids("classification", dataset_name)
-        
-        updated_records = []
-        ids_processed_in_this_run = []
 
-        records_to_process = current_dataset.to_list()
+        # convert to list for in-place updates
+        records = current_dataset.to_list()
+        id_to_index = {rec["id"]: idx for idx, rec in enumerate(records)}
+        to_classify = [
+            rec for rec in records
+            if rec["id"] not in stage_processed_ids
+               or not rec.get("classification", {}).get("top")
+        ]
 
-        for record_dict in tqdm(records_to_process, desc=f"Classifying {dataset_name}", unit="records"):
-            record_id = record_dict["id"]
-            if record_id in stage_processed_ids and record_dict.get("classification", {}).get("top"):
-                # If already processed and has a top-level classification, add it
-                updated_records.append(record_dict)
-                continue
+        logger.info(f"{len(to_classify)} / {len(records)} records need classification.")
 
-            response_text = record_dict.get("response")
+        # 4. helper for worker threads ---------------------------------------
+        def _classify_record(rec_dict: dict) -> dict:
+            response_text = rec_dict.get("response")
             if not response_text:
-                # Should have been filtered, but as a safeguard
                 top_genre, sub_genre = "unknown", None
             else:
                 top_genre, sub_genre = classify_text_zero_shot(
-                    response_text, class_config, llm_client_instance, app_config
+                    response_text,
+                    class_config,
+                    llm_client,
+                    app_config,
                 )
-            
-            # Ensure 'classification' field exists and is a dict
-            if "classification" not in record_dict or not isinstance(record_dict.get("classification"), dict):
-                 record_dict["classification"] = {}
 
-            record_dict["classification"]["top"] = top_genre
-            record_dict["classification"]["sub"] = sub_genre
-            
-            updated_records.append(record_dict)
-            ids_processed_in_this_run.append(record_id)
+            rec_dict.setdefault("classification", {})
+            rec_dict["classification"]["top"] = top_genre
+            rec_dict["classification"]["sub"] = sub_genre
+            return rec_dict  # updated
 
-            if len(ids_processed_in_this_run) >= 100:
-                app_config.state_manager.add_processed_ids_batch(ids_processed_in_this_run, "classification", dataset_name)
-                ids_processed_in_this_run.clear()
-        
-        if ids_processed_in_this_run:
-            app_config.state_manager.add_processed_ids_batch(ids_processed_in_this_run, "classification", dataset_name)
+        # 5. parallel execution ---------------------------------------------
+        updated_ids = []
+        if to_classify:  # skip pool if everything already done
+            with ThreadPoolExecutor(max_workers=max_workers) as pool:
+                futures = {pool.submit(_classify_record, rec): rec["id"] for rec in to_classify}
+                for fut in tqdm(
+                    as_completed(futures),
+                    total=len(futures),
+                    desc=f"Classifying {dataset_name}",
+                    unit="records",
+                ):
+                    rec_id = futures[fut]
+                    try:
+                        updated_rec = fut.result()
+                    except Exception as e:
+                        logger.error(f"Classification failed for record {rec_id}: {e}")
+                        continue
+                    # place updated record back into master list
+                    records[id_to_index[rec_id]] = updated_rec
+                    updated_ids.append(rec_id)
 
-        if updated_records:
-            file_io.save_records_to_arrow(updated_records, output_file)
-            logger.info(f"Finished classification for {dataset_name}: {len(updated_records)} records processed.")
-        else:
-            logger.warning(f"No records after classification for {dataset_name}.")
-            file_io.save_records_to_arrow([], output_file)
+        # 6. state manager & save -------------------------------------------
+        if updated_ids:
+            app_config.state_manager.add_processed_ids_batch(
+                updated_ids, "classification", dataset_name
+            )
+
+        file_io.save_records_to_arrow(records, output_file)
+        logger.info(f"Finished classification for {dataset_name}: wrote {len(records)} records.")
 
     logger.info("--- Classification Stage Completed ---")
 

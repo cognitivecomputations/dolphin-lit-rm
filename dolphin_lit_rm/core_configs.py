@@ -10,6 +10,8 @@ class LLMSettings(BaseModel):
     model_name: Optional[str] = None
     timeout_seconds: Optional[int] = None
     max_retries: Optional[int] = None
+    max_concurrent_requests: Optional[int] = None
+
 
 class FilterConfig(BaseModel):
     min_response_tokens: int = 10
