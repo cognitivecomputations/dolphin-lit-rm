@@ -36,21 +36,27 @@ def load_configuration(
     if existing_run_dir:
         logger.info(f"Resuming run from: {existing_run_dir}")
         # Load configs from the existing run directory
-        run_config_path = existing_run_dir / "config" / "run.yml"
-        datasets_config_path = existing_run_dir / "config" / "datasets.yml"
-        rubric_config_path = existing_run_dir / "config" / "rubric.yml"
+        run_config_path = existing_run_dir / "config" / "run.yaml"
+        datasets_config_path = existing_run_dir / "config" / "datasets.yaml"
+        rubric_config_path = existing_run_dir / "config" / "rubric.yaml"
         if not all([p.exists() for p in [run_config_path, datasets_config_path, rubric_config_path]]):
             logger.error(f"One or more config files not found in resumed run directory {existing_run_dir}/config. Exiting.")
             raise typer.Exit(code=1)
     else:
         # Ensure default paths are provided if specific ones aren't
-        if not run_config_path: run_config_path = Path("dolphin_lit_rm/config/run.yml")
-        if not datasets_config_path: datasets_config_path = Path("dolphin_lit_rm/config/datasets.yml")
-        if not rubric_config_path: rubric_config_path = Path("dolphin_lit_rm/config/rubric.yml")
+        if not run_config_path: run_config_path = Path("dolphin_lit_rm/config/run.yaml")
+        if not datasets_config_path: datasets_config_path = Path("dolphin_lit_rm/config/datasets.yaml")
+        if not rubric_config_path: rubric_config_path = Path("dolphin_lit_rm/config/rubric.yaml")
 
     try:
         with open(run_config_path, 'r') as f:
             run_config_data = yaml.safe_load(f)
+        
+        # Create runs_parent_dir if it doesn't exist before Pydantic validation
+        if 'runs_parent_dir' in run_config_data:
+            runs_parent_path = Path(run_config_data['runs_parent_dir'])
+            runs_parent_path.mkdir(parents=True, exist_ok=True)
+        
         run_cfg = RunConfig(**run_config_data)
 
         with open(datasets_config_path, 'r') as f:
@@ -92,15 +98,15 @@ def setup_run_environment(app_cfg: AppConfig, resume_dir: Optional[Path]) -> App
         # Determine original config paths (this is a bit of a hack, assumes they were default or passed)
         # This part needs to be robust if CLI overrides were used for config paths.
         # For simplicity, assume they are the default paths if not resuming.
-        orig_run_cfg_path = Path(getattr(app_cfg, "_cli_run_config_path", "dolphin_lit_rm/config/run.yml"))
-        orig_ds_cfg_path = Path(getattr(app_cfg, "_cli_datasets_config_path", "dolphin_lit_rm/config/datasets.yml"))
-        orig_rb_cfg_path = Path(getattr(app_cfg, "_cli_rubric_config_path", "dolphin_lit_rm/config/rubric.yml"))
+        orig_run_cfg_path = Path(getattr(app_cfg, "_cli_run_config_path", "dolphin_lit_rm/config/run.yaml"))
+        orig_ds_cfg_path = Path(getattr(app_cfg, "_cli_datasets_config_path", "dolphin_lit_rm/config/datasets.yaml"))
+        orig_rb_cfg_path = Path(getattr(app_cfg, "_cli_rubric_config_path", "dolphin_lit_rm/config/rubric.yaml"))
 
         try:
-            shutil.copy(orig_run_cfg_path, run_config_copy_dir / "run.yml")
-            shutil.copy(orig_ds_cfg_path, run_config_copy_dir / "datasets.yml")
-            shutil.copy(orig_rb_cfg_path, run_config_copy_dir / "rubric.yml")
-            app_cfg.run.run_config_copy_path = run_config_copy_dir / "run.yml"
+            shutil.copy(orig_run_cfg_path, run_config_copy_dir / "run.yaml")
+            shutil.copy(orig_ds_cfg_path, run_config_copy_dir / "datasets.yaml")
+            shutil.copy(orig_rb_cfg_path, run_config_copy_dir / "rubric.yaml")
+            app_cfg.run.run_config_copy_path = run_config_copy_dir / "run.yaml"
         except Exception as e:
             logger.warning(f"Could not copy config files to run directory: {e}")
 

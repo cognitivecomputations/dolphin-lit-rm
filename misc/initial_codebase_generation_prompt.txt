@@ -93,9 +93,9 @@ dolphin-lit-rm/
 ├── dolphin-lit-rm/
 │   ├── __init__.py
 │   ├── config/
-│   │   ├── run.yml
-│   │   ├── datasets.yml
-│   │   ├── rubric.yml
+│   │   ├── run.yaml
+│   │   ├── datasets.yaml
+│   │   ├── rubric.yaml
 │   │   └── prompts/
 │   │       └── scoring.jinja
 │   ├── ingestion/
@@ -228,7 +228,7 @@ Store in `artifacts/reconstructed/*.arrow`.
 
 Goal: assign `class.top` and `class.sub`.
 
-* **Label taxonomy** stored in `config/genre_taxonomy.yml`.
+* **Label taxonomy** stored in `config/genre_taxonomy.yaml`.
 * Two options; pick one or chain them:
 
   1. **Zero-shot LLM** (cheap): prompt Qwen-7B-Chat with “Choose one label from the list…”.
@@ -243,7 +243,7 @@ Goal: assign `class.top` and `class.sub`.
 
 ### 9.1  Rubric definition
 
-`config/rubric.yml` holds a list of metric names.  Each metric is scored independently from 0.0 to 1.0.
+`config/rubric.yaml` holds a list of metric names.  Each metric is scored independently from 0.0 to 1.0.
 
 ### 9.2  Judging engine
 
@@ -372,10 +372,10 @@ We'll structure this into logical phases, focusing on building testable componen
             *   `jinja2` (for prompt templating)
         *   Create a basic `README.md` and `.gitignore`.
     2.  **Configuration System (`dolphin-lit-rm/config/`)**:
-        *   Define Pydantic models for `run.yml`, `datasets.yml`, `rubric.yml`.
-            *   `run.yml`: `api_base_url`, `api_key`, `model_name`, `timeout_seconds`, `max_retries` (per stage: `prompt_reconstruction`, `classification`, `scoring`). Global settings: `output_base_dir`, `log_dir`, `state_dir`.
-            *   `datasets.yml`: List of dataset configs: `name`, `path_or_hf_id`, `format` (`jsonl`, `arrow`, `hf_dataset`, `text`, `csv`, `epub`), `type` (`A`, `B`, `C`), `max_items` (int or percentage string like "10%").
-            *   `rubric.yml`: List of metric objects, each with `name` and `description` (for prompts).
+        *   Define Pydantic models for `run.yaml`, `datasets.yaml`, `rubric.yaml`.
+            *   `run.yaml`: `api_base_url`, `api_key`, `model_name`, `timeout_seconds`, `max_retries` (per stage: `prompt_reconstruction`, `classification`, `scoring`). Global settings: `output_base_dir`, `log_dir`, `state_dir`.
+            *   `datasets.yaml`: List of dataset configs: `name`, `path_or_hf_id`, `format` (`jsonl`, `arrow`, `hf_dataset`, `text`, `csv`, `epub`), `type` (`A`, `B`, `C`), `max_items` (int or percentage string like "10%").
+            *   `rubric.yaml`: List of metric objects, each with `name` and `description` (for prompts).
         *   Implement a config loader (e.g., `dolphin-lit-rm/config/settings.py`) that loads these YAMLs and allows CLI overrides.
         *   Create placeholder YAML files in `dolphin-lit-rm/config/` and `dolphin-lit-rm/config/prompts/scoring.jinja`.
     3.  **Common Record Schema (`dolphin-lit-rm/utils/schema.py`)**:
@@ -397,7 +397,7 @@ We'll structure this into logical phases, focusing on building testable componen
     5.  **Basic CLI (`dolphin-lit-rm/cli.py`)**:
         *   Set up `typer` app.
         *   Define main command groups: `ingest`, `preprocess`, `classify`, `score`, `postprocess`.
-        *   Implement global CLI options for config files, output directories, etc., that override `run.yml`.
+        *   Implement global CLI options for config files, output directories, etc., that override `run.yaml`.
     6.  **Logging**:
         *   Configure `loguru` to write to `logs/{stage}.log` and console, with configurable levels.
 
@@ -420,8 +420,8 @@ We'll structure this into logical phases, focusing on building testable componen
         *   PDF: Start with extracting text via `pypftools` or `pdfminer.six`; acknowledge potential quality issues.
         *   Stores entire document content in `response` for later segmentation. Sets `meta.source_path`.
     5.  **CLI for Ingestion**:
-        *   `dolphin-lit-rm ingest --dataset-config datasets.yml [--dataset-name <name> | --all-datasets]`
-        *   Reads `datasets.yml`, iterates through specified datasets, calls appropriate ingester.
+        *   `dolphin-lit-rm ingest --dataset-config datasets.yaml [--dataset-name <name> | --all-datasets]`
+        *   Reads `datasets.yaml`, iterates through specified datasets, calls appropriate ingester.
         *   Outputs to `artifacts/raw/{dataset_name}.arrow`.
 
 **Phase 2: Pre-filtering & Segmentation**
@@ -430,10 +430,10 @@ We'll structure this into logical phases, focusing on building testable componen
 *   **Tasks:**
     1.  **Filtering Module (`dolphin-lit-rm/preprocessing/filter.py`)**:
         *   Function `apply_filters_to_dataset(dataset_path, output_path, config)` operating streamingly or via `Dataset.map()`.
-        *   Length filter (token-based, min/max from `run.yml`).
-        *   Language ID filter (`fasttext`, threshold from `run.yml`).
-        *   Regex blacklist filter (patterns from `run.yml` or a separate file).
-        *   Deduplication using `sha1(response)` and an LMDB cache (path from `run.yml`).
+        *   Length filter (token-based, min/max from `run.yaml`).
+        *   Language ID filter (`fasttext`, threshold from `run.yaml`).
+        *   Regex blacklist filter (patterns from `run.yaml` or a separate file).
+        *   Deduplication using `sha1(response)` and an LMDB cache (path from `run.yaml`).
         *   Integrate with `state_manager.py` to skip already filtered records if re-run.
     2.  **Segmentation Module (`dolphin-lit-rm/preprocessing/segment.py`)**:
         *   Function `segment_type_c_dataset(dataset_path, output_path, config)`.
@@ -455,9 +455,9 @@ We'll structure this into logical phases, focusing on building testable componen
 *   **Tasks:**
     1.  **Prompt Reconstruction Module (`dolphin-lit-rm/preprocessing/prompt_reconstruct.py`)**:
         *   Function `reconstruct_prompts_for_dataset(dataset_path, output_path, config, llm_client)`.
-        *   Gatekeeper: `prompt is None`, `len(response)` ≤ `MAX_PROMPT_REC_TOK` (from `run.yml`).
+        *   Gatekeeper: `prompt is None`, `len(response)` ≤ `MAX_PROMPT_REC_TOK` (from `run.yaml`).
         *   Load prompt template (Jinja, e.g., `config/prompts/prompt_reconstruction.jinja`).
-        *   Use `llm_api_client.py` with settings for prompt reconstruction model (from `run.yml`).
+        *   Use `llm_api_client.py` with settings for prompt reconstruction model (from `run.yaml`).
         *   Batch requests if LLM API supports it; otherwise, individual requests.
         *   Post-process LLM output (strip, truncate).
         *   Update `record["prompt"]`, `record["meta"]["prompt_type"]="reconstructed"`.
@@ -471,14 +471,14 @@ We'll structure this into logical phases, focusing on building testable componen
 *   **Goal:** Assign genre and sub-genre labels.
 *   **Tasks:**
     1.  **Taxonomy & Prompts**:
-        *   Create `config/genre_taxonomy.yml`.
+        *   Create `config/genre_taxonomy.yaml`.
         *   Create Jinja prompt template for classification (e.g., `config/prompts/classification.jinja`).
     2.  **Classifier Module (`dolphin-lit-rm/classification/classifier.py`)**:
         *   Function `classify_dataset(dataset_path, output_path, config, llm_client)`.
         *   Load taxonomy.
         *   Implement zero-shot LLM classification:
             *   Construct prompt with text and available labels.
-            *   Use `llm_api_client.py` with settings for classification model (from `run.yml`).
+            *   Use `llm_api_client.py` with settings for classification model (from `run.yaml`).
             *   Parse LLM output. Apply confidence logic (if LLM says "unknown" or parsing fails, label "unknown").
         *   (Placeholder for fine-tuned classifier option).
         *   Update `record["class"]`.
@@ -492,12 +492,12 @@ We'll structure this into logical phases, focusing on building testable componen
 *   **Goal:** Score texts on defined rubric metrics using the judge model.
 *   **Tasks:**
     1.  **Rubric & Prompt Finalization**:
-        *   Ensure `config/rubric.yml` is complete.
+        *   Ensure `config/rubric.yaml` is complete.
         *   Finalize `config/prompts/scoring.jinja` to support batching all metrics for one record into a single LLM call. The prompt should clearly ask for each score individually and provide a structured way for the LLM to respond.
     2.  **Judging Engine (`dolphin-lit-rm/scoring/judge.py`)**:
         *   Function `score_dataset(dataset_path, output_path, config, llm_client, rubric)`.
         *   Load rubric.
-        *   Use `llm_api_client.py` with settings for judge model (Qwen-3-30B, from `run.yml`).
+        *   Use `llm_api_client.py` with settings for judge model (Qwen-3-30B, from `run.yaml`).
         *   Implement batching strategy:
             *   For each record, create one prompt asking for all metrics.
             *   Send to LLM (`temperature=0`, `max_tokens` for all scores).
@@ -517,7 +517,7 @@ We'll structure this into logical phases, focusing on building testable componen
             *   Load all scored datasets (e.g., `artifacts/scored/*.arrow`). Concatenate if needed.
             *   **Calibration**: For each metric, calculate 5th/95th percentiles across the entire dataset (all sources combined) and rescale. Clamp to [0,1]. (Configurable on/off).
             *   **Outlier/Missing Data Filtering**: Drop records with >X% missing metrics (configurable).
-            *   **Splitting**: Partition into train/val/test by stable hash of `record["id"]` (ratios from `run.yml`).
+            *   **Splitting**: Partition into train/val/test by stable hash of `record["id"]` (ratios from `run.yaml`).
         *   Write final datasets: `artifacts/final/dolphin-lit-rm_v0.{split}.arrow`.
     2.  **CLI for Post-processing**:
         *   `dolphin-lit-rm postprocess --input-dir artifacts/scored --output-dir-final artifacts/final`

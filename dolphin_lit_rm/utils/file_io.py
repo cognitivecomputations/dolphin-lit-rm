@@ -27,6 +27,12 @@ def save_records_to_arrow(records: List[Dict[str, Any]], output_path: Path, sche
         
         # Dynamically create features if not provided or infer from first record
         # For simplicity, let's assume records are dicts and infer
+        # --- sanitize empty-mapping columns ---------------------------------
+        for rec in records:
+            for k, v in list(rec.items()):
+                if isinstance(v, dict) and not v:     # <- empty mapping → set to None
+                    rec[k] = None
+
         hf_dataset = Dataset.from_list(records)
         hf_dataset.to_parquet(str(output_path)) # .arrow often means Parquet for HF Datasets
         logger.info(f"Saved {len(records)} records to {output_path}")
@@ -75,7 +81,7 @@ def stream_text_file(file_path: Path) -> Iterator[str]:
 def get_hf_dataset(
     path_or_hf_id: str,
     format_type: str,
-    config: Dict[str, Any], # dataset specific config from datasets.yml
+    config: Dict[str, Any], # dataset specific config from datasets.yaml
     max_items: Optional[Union[int, str]] = None
 ) -> Dataset:
     """

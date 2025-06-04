@@ -35,9 +35,9 @@ This project implements a data pipeline to process various text corpora into a f
 
 Configuration is managed through YAML files in `dolphin-lit-rm/config/`:
 
-*   `run.yml`: Main run parameters, API keys, model endpoints, paths, stage-specific settings.
-*   `datasets.yml`: Definitions of input datasets, their types, paths, and ingestion limits.
-*   `rubric.yml`: Metrics for the reward model.
+*   `run.yaml`: Main run parameters, API keys, model endpoints, paths, stage-specific settings.
+*   `datasets.yaml`: Definitions of input datasets, their types, paths, and ingestion limits.
+*   `rubric.yaml`: Metrics for the reward model.
 *   `prompts/`: Jinja templates for LLM interactions.
 
 Default configurations are provided. You can override them by:
@@ -59,9 +59,9 @@ dolphin-lit-rm [GLOBAL_OPTIONS] COMMAND [COMMAND_OPTIONS]
 
 ```bash
 poetry run dolphin-lit-rm process-all \
-    --run-config-file dolphin-lit-rm/config/run.yml \
-    --datasets-config-file dolphin-lit-rm/config/datasets.yml \
-    --rubric-config-file dolphin-lit-rm/config/rubric.yml
+    --run-config-file dolphin-lit-rm/config/run.yaml \
+    --datasets-config-file dolphin-lit-rm/config/datasets.yaml \
+    --rubric-config-file dolphin-lit-rm/config/rubric.yaml
 ```
 
 This will create a new run directory (e.g., `runs/run_YYYYMMDD_HHMMSS_xxxx`) containing logs, artifacts, and a copy of the configs used.

@@ -79,9 +79,9 @@ This project implements a data pipeline to process various text corpora into a f
 
 Configuration is managed through YAML files in `dolphin-lit-rm/config/`:
 
-*   `run.yml`: Main run parameters, API keys, model endpoints, paths, stage-specific settings.
-*   `datasets.yml`: Definitions of input datasets, their types, paths, and ingestion limits.
-*   `rubric.yml`: Metrics for the reward model.
+*   `run.yaml`: Main run parameters, API keys, model endpoints, paths, stage-specific settings.
+*   `datasets.yaml`: Definitions of input datasets, their types, paths, and ingestion limits.
+*   `rubric.yaml`: Metrics for the reward model.
 *   `prompts/`: Jinja templates for LLM interactions.
 
 Default configurations are provided. You can override them by:
@@ -103,9 +103,9 @@ dolphin-lit-rm [GLOBAL_OPTIONS] COMMAND [COMMAND_OPTIONS]
 
 ```bash
 poetry run dolphin-lit-rm process-all \
-    --run-config-file dolphin-lit-rm/config/run.yml \
-    --datasets-config-file dolphin-lit-rm/config/datasets.yml \
-    --rubric-config-file dolphin-lit-rm/config/rubric.yml
+    --run-config-file dolphin-lit-rm/config/run.yaml \
+    --datasets-config-file dolphin-lit-rm/config/datasets.yaml \
+    --rubric-config-file dolphin-lit-rm/config/rubric.yaml
 ```
 
 This will create a new run directory (e.g., `runs/run_YYYYMMDD_HHMMSS_xxxx`) containing logs, artifacts, and a copy of the configs used.
@@ -156,7 +156,7 @@ The run directory contains:
 ```
 
 ---
-**`dolphin-lit-rm/dolphin_lit_rm/config/run.yml`**
+**`dolphin-lit-rm/dolphin_lit_rm/config/run.yaml`**
 ---
 ```yaml
 # Main run configuration
@@ -178,7 +178,7 @@ default_llm_settings:
 # Stage-specific configurations
 ingestion:
   # No specific LLM settings for ingestion typically
-  # max_items_per_dataset can be set in datasets.yml
+  # max_items_per_dataset can be set in datasets.yaml
 
 preprocessing:
   filter:
@@ -246,7 +246,7 @@ tokenizer_name: "gpt-4" # For tiktoken, or a HF tokenizer path
 ```
 
 ---
-**`dolphin-lit-rm/dolphin_lit_rm/config/datasets.yml`**
+**`dolphin-lit-rm/dolphin_lit_rm/config/datasets.yaml`**
 ---
 ```yaml
 # Configuration for input datasets
@@ -291,7 +291,7 @@ datasets:
 ```
 
 ---
-**`dolphin-lit-rm/dolphin_lit_rm/config/rubric.yml`**
+**`dolphin-lit-rm/dolphin_lit_rm/config/rubric.yaml`**
 ---
 ```yaml
 # Rubric definition for the literary reward model
@@ -387,7 +387,7 @@ If the text is too short, ambiguous, or doesn't clearly fit any category, choose
 
 Primary Genre Category:
 ```
-(*Note: `genre_taxonomy.yml` is not explicitly requested but implied by `classification/classifier.py`. For now, the prompt lists genres passed to it.*)
+(*Note: `genre_taxonomy.yaml` is not explicitly requested but implied by `classification/classifier.py`. For now, the prompt lists genres passed to it.*)
 
 ---
 **`dolphin-lit-rm/dolphin_lit_rm/utils/schema_def.py`** (was `schema.py`)
@@ -541,7 +541,7 @@ def stream_text_file(file_path: Path) -> Iterator[str]:
 def get_hf_dataset(
     path_or_hf_id: str,
     format_type: str,
-    config: Dict[str, Any], # dataset specific config from datasets.yml
+    config: Dict[str, Any], # dataset specific config from datasets.yaml
     max_items: Optional[Union[int, str]] = None
 ) -> Dataset:
     """
@@ -915,7 +915,7 @@ class RunConfig(BaseModel):
     default_llm_settings: LLMSettings = Field(default_factory=LLMSettings)
     
     # Stage specific configs
-    # ingestion: Optional[Dict[str, Any]] = None # Ingestion config is mostly in datasets.yml
+    # ingestion: Optional[Dict[str, Any]] = None # Ingestion config is mostly in datasets.yaml
     preprocessing: PreprocessingConfig = Field(default_factory=PreprocessingConfig)
     classification: ClassificationConfig = Field(default_factory=ClassificationConfig)
     normalization: NormalizationQuotaConfig = Field(default_factory=NormalizationQuotaConfig)
@@ -2879,17 +2879,17 @@ def load_configuration(
     if existing_run_dir:
         logger.info(f"Resuming run from: {existing_run_dir}")
         # Load configs from the existing run directory
-        run_config_path = existing_run_dir / "config" / "run.yml"
-        datasets_config_path = existing_run_dir / "config" / "datasets.yml"
-        rubric_config_path = existing_run_dir / "config" / "rubric.yml"
+        run_config_path = existing_run_dir / "config" / "run.yaml"
+        datasets_config_path = existing_run_dir / "config" / "datasets.yaml"
+        rubric_config_path = existing_run_dir / "config" / "rubric.yaml"
         if not all([p.exists() for p in [run_config_path, datasets_config_path, rubric_config_path]]):
             logger.error(f"One or more config files not found in resumed run directory {existing_run_dir}/config. Exiting.")
             raise typer.Exit(code=1)
     else:
         # Ensure default paths are provided if specific ones aren't
-        if not run_config_path: run_config_path = Path("dolphin-lit-rm/config/run.yml")
-        if not datasets_config_path: datasets_config_path = Path("dolphin-lit-rm/config/datasets.yml")
-        if not rubric_config_path: rubric_config_path = Path("dolphin-lit-rm/config/rubric.yml")
+        if not run_config_path: run_config_path = Path("dolphin-lit-rm/config/run.yaml")
+        if not datasets_config_path: datasets_config_path = Path("dolphin-lit-rm/config/datasets.yaml")
+        if not rubric_config_path: rubric_config_path = Path("dolphin-lit-rm/config/rubric.yaml")
 
     try:
         with open(run_config_path, 'r') as f:
@@ -2935,15 +2935,15 @@ def setup_run_environment(app_cfg: AppConfig, resume_dir: Optional[Path]) -> App
         # Determine original config paths (this is a bit of a hack, assumes they were default or passed)
         # This part needs to be robust if CLI overrides were used for config paths.
         # For simplicity, assume they are the default paths if not resuming.
-        orig_run_cfg_path = Path(getattr(app_cfg, "_cli_run_config_path", "dolphin-lit-rm/config/run.yml"))
-        orig_ds_cfg_path = Path(getattr(app_cfg, "_cli_datasets_config_path", "dolphin-lit-rm/config/datasets.yml"))
-        orig_rb_cfg_path = Path(getattr(app_cfg, "_cli_rubric_config_path", "dolphin-lit-rm/config/rubric.yml"))
+        orig_run_cfg_path = Path(getattr(app_cfg, "_cli_run_config_path", "dolphin-lit-rm/config/run.yaml"))
+        orig_ds_cfg_path = Path(getattr(app_cfg, "_cli_datasets_config_path", "dolphin-lit-rm/config/datasets.yaml"))
+        orig_rb_cfg_path = Path(getattr(app_cfg, "_cli_rubric_config_path", "dolphin-lit-rm/config/rubric.yaml"))
 
         try:
-            shutil.copy(orig_run_cfg_path, run_config_copy_dir / "run.yml")
-            shutil.copy(orig_ds_cfg_path, run_config_copy_dir / "datasets.yml")
-            shutil.copy(orig_rb_cfg_path, run_config_copy_dir / "rubric.yml")
-            app_cfg.run.run_config_copy_path = run_config_copy_dir / "run.yml"
+            shutil.copy(orig_run_cfg_path, run_config_copy_dir / "run.yaml")
+            shutil.copy(orig_ds_cfg_path, run_config_copy_dir / "datasets.yaml")
+            shutil.copy(orig_rb_cfg_path, run_config_copy_dir / "rubric.yaml")
+            app_cfg.run.run_config_copy_path = run_config_copy_dir / "run.yaml"
         except Exception as e:
             logger.warning(f"Could not copy config files to run directory: {e}")
 
@@ -3118,12 +3118,12 @@ if __name__ == "__main__":
 # and have poetry environment activated or use `poetry run`
 
 # Default config files (can be overridden by CLI options if needed)
-RUN_CONFIG="dolphin-lit-rm/config/run.yml"
-DATASETS_CONFIG="dolphin-lit-rm/config/datasets.yml"
-RUBRIC_CONFIG="dolphin-lit-rm/config/rubric.yml"
+RUN_CONFIG="dolphin-lit-rm/config/run.yaml"
+DATASETS_CONFIG="dolphin-lit-rm/config/datasets.yaml"
+RUBRIC_CONFIG="dolphin-lit-rm/config/rubric.yaml"
 
 # --- Option 1: Start a new run ---
-# The CLI will create a new run directory under `runs_parent_dir` specified in run.yml
+# The CLI will create a new run directory under `runs_parent_dir` specified in run.yaml
 echo "Starting a new pipeline run..."
 poetry run dolphin-lit-rm process-all \
     --run-config "$RUN_CONFIG" \
@@ -3160,4 +3160,4 @@ poetry run dolphin-lit-rm process-all \
 echo "Pipeline execution script finished."
 ```
 
-This completes the generation of the core files based on the plan and your feedback. There are many `# TODO`s and areas for refinement (error handling, more sophisticated logic, testing, performance optimization for very large data), but this provides a comprehensive and runnable (with appropriate setup and models) starting point. Remember to `poetry install` and download necessary models (`spacy`, `fasttext`). The LLM API endpoints in `run.yml` also need to be correctly configured.
+This completes the generation of the core files based on the plan and your feedback. There are many `# TODO`s and areas for refinement (error handling, more sophisticated logic, testing, performance optimization for very large data), but this provides a comprehensive and runnable (with appropriate setup and models) starting point. Remember to `poetry install` and download necessary models (`spacy`, `fasttext`). The LLM API endpoints in `run.yaml` also need to be correctly configured.

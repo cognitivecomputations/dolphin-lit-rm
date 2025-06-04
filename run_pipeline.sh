@@ -8,21 +8,22 @@
 export PYTHONPATH="${PYTHONPATH}:$(pwd)"
 
 # Default config files (can be overridden by CLI options if needed)
-RUN_CONFIG="dolphin_lit_rm/config/run.yml"
-DATASETS_CONFIG="dolphin_lit_rm/config/datasets.yml"
-RUBRIC_CONFIG="dolphin_lit_rm/config/rubric.yml"
+RUN_CONFIG="dolphin_lit_rm/config/run.yaml"
+DATASETS_CONFIG="dolphin_lit_rm/config/datasets.yaml"
+RUBRIC_CONFIG="dolphin_lit_rm/config/rubric.yaml"
 
 # Note: If you get import errors, install the package first:
 #   pip install -r requirements.txt
 #   pip install -e .
 
 # --- Option 1: Start a new run ---
-# The CLI will create a new run directory under `runs_parent_dir` specified in run.yml
+# The CLI will create a new run directory under `runs_parent_dir` specified in run.yaml
 echo "Starting a new pipeline run..."
-python3 cli.py process-all \
+python3 cli.py  \
     --run-config "$RUN_CONFIG" \
     --datasets-config "$DATASETS_CONFIG" \
-    --rubric-config "$RUBRIC_CONFIG"
+    --rubric-config "$RUBRIC_CONFIG" \
+    process-all
 
 # --- Option 2: Resume a specific run ---
 # Replace 'path/to/your/existing_run_YYYYMMDD_HHMMSS_xxxxxx' with the actual directory

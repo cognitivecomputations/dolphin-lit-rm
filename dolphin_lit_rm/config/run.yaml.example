@@ -17,7 +17,7 @@ default_llm_settings:
 # Stage-specific configurations
 ingestion:
   # No specific LLM settings for ingestion typically
-  # max_items_per_dataset can be set in datasets.yml
+  # max_items_per_dataset can be set in datasets.yaml
 
 preprocessing:
   filter:

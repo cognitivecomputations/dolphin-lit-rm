@@ -74,7 +74,7 @@ class RunConfig(BaseModel):
     default_llm_settings: LLMSettings = Field(default_factory=LLMSettings)
     
     # Stage specific configs
-    # ingestion: Optional[Dict[str, Any]] = None # Ingestion config is mostly in datasets.yml
+    # ingestion: Optional[Dict[str, Any]] = None # Ingestion config is mostly in datasets.yaml
     preprocessing: PreprocessingConfig = Field(default_factory=PreprocessingConfig)
     classification: ClassificationConfig = Field(default_factory=ClassificationConfig)
     normalization: NormalizationQuotaConfig = Field(default_factory=NormalizationQuotaConfig)
